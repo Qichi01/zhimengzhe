@@ -1,0 +1,200 @@
+@import "tailwindcss";
+
+/* ===== 主题相关 CSS 变量（默认：梦境柔光）===== */
+:root {
+  --bg-gradient: radial-gradient(ellipse at 50% 40%, #2e2b4e 0%, #1e1b2e 70%);
+  --background: #1e1b2e;
+  --foreground: #e8d5f5;
+  --text-primary: #e8d5f5;
+  --text-secondary: #d5b8f5;
+  --option-bg: rgba(200, 170, 255, 0.1);
+  --option-border: rgba(200, 170, 255, 0.25);
+  --option-hover-bg: rgba(200, 170, 255, 0.2);
+  --accent-color: #c8aaff;
+  --glow-color: rgba(200, 170, 255, 0.3);
+  --border-radius: 12px;
+}
+
+/* 将 CSS 变量映射到 Tailwind v4 主题令牌 */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-accent: var(--accent-color);
+  --font-serif: "Songti SC", "STSong", "SimSun", "Noto Serif SC", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  height: 100%;
+}
+
+/* 全局基础样式：暗色背景、字体设置 */
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: "Songti SC", "STSong", "SimSun", "Noto Serif SC",
+    "Source Han Serif SC", Georgia, serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ===== 隐藏滚动条 ===== */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ===== 自定义滚动条样式（细线、半透明）===== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(200, 170, 255, 0.25) transparent;
+}
+*::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(200, 170, 255, 0.25);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(200, 170, 255, 0.45);
+}
+
+/* ===== 打字机光标闪烁动画 ===== */
+.typewriter-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  margin-left: 3px;
+  background-color: var(--accent-color);
+  vertical-align: text-bottom;
+  animation: typewriter-blink 1s step-end infinite;
+}
+
+@keyframes typewriter-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ===== 淡入动画 ===== */
+.fade-in {
+  animation: fade-in 0.7s ease-out both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ===== 选项 hover 过渡效果 ===== */
+.option-hover {
+  transition: background-color 0.3s ease, border-color 0.3s ease,
+    transform 0.3s ease, box-shadow 0.3s ease;
+}
+.option-hover:hover {
+  background-color: var(--option-hover-bg);
+  border-color: var(--accent-color);
+  transform: translateX(6px);
+  box-shadow: 0 0 18px var(--glow-color);
+}
+
+/* ===== 选项按钮 hover 效果 ===== */
+.option-button:not(:disabled):hover {
+  background-color: var(--opt-hover-bg, rgba(200, 170, 255, 0.2)) !important;
+  transform: scale(1.02);
+  box-shadow: 0 0 20px var(--opt-glow, rgba(200, 170, 255, 0.3));
+  border-color: var(--opt-accent, #c8aaff) !important;
+}
+
+.option-button {
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.option-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ===== 选项淡入上升动画 ===== */
+@keyframes optionFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ===== 加载省略号动画 ===== */
+.loading-dots {
+  display: inline-block;
+  width: 24px;
+  text-align: left;
+}
+
+.loading-dots::after {
+  content: "...";
+  animation: loading-dots 1.4s infinite;
+}
+
+@keyframes loading-dots {
+  0% { content: ""; }
+  25% { content: "."; }
+  50% { content: ".."; }
+  75% { content: "..."; }
+  100% { content: ""; }
+}
+
+/* ===== 阅读器滚动区域 ===== */
+.story-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(200, 170, 255, 0.2) transparent;
+}
+
+.story-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.story-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.story-scroll::-webkit-scrollbar-thumb {
+  background: rgba(200, 170, 255, 0.2);
+  border-radius: 4px;
+}
