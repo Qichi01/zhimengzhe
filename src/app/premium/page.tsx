@@ -156,7 +156,7 @@ export default function PremiumPage() {
             </ul>
 
             <a
-              href="https://afdian.com"
+              href="https://afdian.com/a/baibai521520"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex w-full items-center justify-center rounded-2xl px-8 py-4 text-base font-bold transition-transform hover:scale-[1.03] active:scale-95 sm:w-auto"
