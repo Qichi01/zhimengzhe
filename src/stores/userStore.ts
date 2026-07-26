@@ -48,7 +48,8 @@ interface UserState {
   remainingFreeTrials: () => number;
 }
 
-export const MAX_FREE_TRIALS = 20;
+// GLM-4-Flash 永久免费，免费用户不再有次数限制
+export const MAX_FREE_TRIALS = Infinity;
 
 export const useUserStore = create<UserState>()(
   persist(
@@ -133,30 +134,8 @@ export const useUserStore = create<UserState>()(
         });
       },
 
-      // 消耗一次免费体验
-      consumeFreeTrial: async (userId) => {
-        const state = get();
-        // 已是会员或有 API Key 不消耗
-        if (state.isPremium() || state.apiKey !== "") {
-          return { ok: true };
-        }
-        if (state.remainingFreeTrials() <= 0) {
-          return { ok: false, error: "free_exhausted" };
-        }
-
-        if (userId) {
-          // 已登录 → 同步到 Supabase
-          const { error } = await incrementFreeTrial(userId);
-          if (error) return { ok: false, error };
-        } else {
-          // 未登录 → 只更新本地计数
-          incrementLocalFreeTrial();
-        }
-
-        set((s) => ({
-          freeTrialUsed: s.freeTrialUsed + 1,
-          profileSyncedAt: Date.now(),
-        }));
+      // 消耗免费体验（GLM-4-Flash 永久免费，不再消耗次数）
+      consumeFreeTrial: async (_userId) => {
         return { ok: true };
       },
 
@@ -170,16 +149,14 @@ export const useUserStore = create<UserState>()(
         return isLocalMembershipActive();
       },
 
-      // 是否可无限游玩（会员 或 自带 Key）
+      // 是否可无限游玩（现在所有用户都可以，GLM-4-Flash 永久免费）
       canPlayUnlimited: () => {
-        const state = get();
-        return state.isPremium() || state.apiKey !== "";
+        return true;
       },
 
-      // 剩余免费次数（同时检查 state 和本地 profile）
+      // 剩余免费次数（无限，GLM-4-Flash 永久免费）
       remainingFreeTrials: () => {
-        const used = Math.max(get().freeTrialUsed, getLocalProfile().free_trial_used);
-        return Math.max(0, MAX_FREE_TRIALS - used);
+        return Infinity;
       },
     }),
     {

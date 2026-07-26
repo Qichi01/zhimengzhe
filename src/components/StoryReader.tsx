@@ -177,26 +177,13 @@ export default function StoryReader({
 
         if (!res.ok) {
           let msg = "梦境暂时中断，请稍后重试";
-          let isPaywall = false;
           try {
             const data = await res.json();
-            if (data?.error === "free_exhausted") {
-              isPaywall = true;
-              msg = "免费体验次数已用完，开通会员或填入 API Key 继续畅玩";
-              track("hit_paywall", { trigger: "free_exhausted" });
-            } else if (data?.error) {
+            if (data?.error) {
               msg = data.error;
             }
           } catch {
             /* ignore */
-          }
-
-          if (isPaywall) {
-            // 触发付费引导
-            setError("FREE_EXHAUSTED");
-            setIsLoading(false);
-            abortRef.current = null;
-            return;
           }
           throw new Error(msg);
         }
@@ -700,7 +687,7 @@ export default function StoryReader({
           )}
 
           {/* 错误提示 */}
-          {error && error !== "FREE_EXHAUSTED" && (
+          {error && (
             <div
               style={{
                 padding: "16px",
@@ -719,52 +706,6 @@ export default function StoryReader({
               >
                 重试
               </button>
-            </div>
-          )}
-
-          {/* 免费次数耗尽提示 */}
-          {error === "FREE_EXHAUSTED" && (
-            <div
-              style={{
-                padding: "20px",
-                borderRadius: theme.borderRadius,
-                background: "rgba(200, 170, 255, 0.1)",
-                border: "1px solid rgba(200, 170, 255, 0.3)",
-                color: theme.textPrimary,
-                fontSize: "15px",
-                textAlign: "center",
-              }}
-            >
-              <p style={{ margin: "0 0 16px", lineHeight: 1.7 }}>
-                免费体验次数已用完
-                <br />
-                <span style={{ color: theme.textSecondary, fontSize: "13px" }}>
-                  开通会员或填入 API Key 继续畅玩
-                </span>
-              </p>
-              <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
-                <a
-                  href="/membership"
-                  style={{
-                    ...accentBtnStyle(theme),
-                    textDecoration: "none",
-                    display: "inline-block",
-                  }}
-                >
-                  开通会员
-                </a>
-                <a
-                  href="/settings"
-                  style={{
-                    ...retryBtnStyle(theme),
-                    textDecoration: "none",
-                    display: "inline-block",
-                    padding: "10px 28px",
-                  }}
-                >
-                  填入 Key
-                </a>
-              </div>
             </div>
           )}
 

@@ -126,15 +126,9 @@ export default function SettingsContent() {
     }
   };
 
-  // 安全调用 remainingFreeTrials
+  // 安全调用 remainingFreeTrials（GLM-4-Flash 永久免费，不再有次数限制）
   const safeRemainingFreeTrials = (): number => {
-    if (!mounted) return 20;
-    try {
-      const n = remainingFreeTrials();
-      return Number.isFinite(n) ? n : 20;
-    } catch {
-      return 20;
-    }
+    return Infinity;
   };
 
   const themeIdDisplay = mounted ? themeId : "dream-light";
@@ -479,9 +473,9 @@ export default function SettingsContent() {
                   <span style={{ color: "#c8aaff" }}>让我们提供 AI 服务</span>
                 ) : (
                   <>
-                    免费体验
+                    <span style={{ color: "#9fe8c4" }}>免费畅玩</span>
                     <span className="ml-2 text-xs" style={{ color: "#8a7aa8" }}>
-                      剩余 {safeRemainingFreeTrials()}/20 轮
+                      GLM-4-Flash 驱动 · 不限次数
                     </span>
                   </>
                 )}

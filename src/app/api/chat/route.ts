@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import {
   type ProviderId,
   getProvider,
   buildApiRequest,
-  convertToClaudeFormat,
 } from "@/lib/providers";
 
 export const runtime = "nodejs";
@@ -14,81 +12,13 @@ if (process.env.NODE_ENV === "development") {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 }
 
-const MAX_FREE_TRIALS = 20;
-
 // ============================================================
-// 设备级免费次数限制（进程级内存，防止明显滥用）
+// 免费模型配置
+// 免费用户（无 API Key、非会员）自动使用 GLM-4-Flash
+// GLM-4-Flash 永久免费、无 Token 上限，仅限 30 并发
 // ============================================================
-interface DeviceUsage {
-  count: number;
-  resetAt: number;
-}
-
-const deviceUsageMap = new Map<string, DeviceUsage>();
-
-function checkDeviceLimit(deviceId: string): { ok: boolean; remaining: number } {
-  const now = Date.now();
-  const record = deviceUsageMap.get(deviceId);
-
-  if (!record || now > record.resetAt) {
-    deviceUsageMap.set(deviceId, {
-      count: 1,
-      resetAt: now + 24 * 60 * 60 * 1000,
-    });
-    return { ok: true, remaining: MAX_FREE_TRIALS - 1 };
-  }
-
-  if (record.count >= MAX_FREE_TRIALS) {
-    return { ok: false, remaining: 0 };
-  }
-
-  record.count++;
-  return { ok: true, remaining: MAX_FREE_TRIALS - record.count };
-}
-
-// ============================================================
-// 已登录用户：Supabase 验证
-// ============================================================
-async function checkUserAccess(userId: string): Promise<{
-  ok: boolean;
-  error?: string;
-}> {
-  const supabase = await createClient();
-
-  const { data: profile, error } = await supabase
-    .from("user_profiles")
-    .select("membership_plan, membership_expires_at, free_trial_used")
-    .eq("id", userId)
-    .single();
-
-  if (error || !profile) {
-    return { ok: false, error: "无法验证用户状态，请重新登录" };
-  }
-
-  const isPremium =
-    profile.membership_plan !== "free" &&
-    profile.membership_expires_at &&
-    new Date(profile.membership_expires_at).getTime() > Date.now();
-
-  if (isPremium) {
-    return { ok: true };
-  }
-
-  if (profile.free_trial_used >= MAX_FREE_TRIALS) {
-    return { ok: false, error: "free_exhausted" };
-  }
-
-  const { error: updateError } = await supabase
-    .from("user_profiles")
-    .update({ free_trial_used: profile.free_trial_used + 1 })
-    .eq("id", userId);
-
-  if (updateError) {
-    return { ok: false, error: "无法更新体验次数" };
-  }
-
-  return { ok: true };
-}
+const FREE_PROVIDER: ProviderId = "glm";
+const FREE_MODEL = "glm-4-flash";
 
 // ============================================================
 // Claude SSE 流转换
@@ -123,7 +53,6 @@ async function convertClaudeStreamToOpenAI(
             try {
               const json = JSON.parse(data);
 
-              // Claude 的 content_block_delta 事件包含文本增量
               if (json.type === "content_block_delta" && json.delta?.text) {
                 const openaiChunk = {
                   choices: [
@@ -138,7 +67,6 @@ async function convertClaudeStreamToOpenAI(
                 );
               }
 
-              // Claude 流结束
               if (json.type === "message_stop") {
                 controller.enqueue(encoder.encode("data: [DONE]\n\n"));
               }
@@ -164,7 +92,6 @@ export async function POST(req: NextRequest) {
     const {
       messages,
       apiKey,
-      deviceId,
       providerId,
       modelId,
     } = await req.json();
@@ -177,81 +104,31 @@ export async function POST(req: NextRequest) {
     }
 
     // 解析 provider（默认 deepseek，兼容旧版）
-    const pid: ProviderId = (providerId as ProviderId) || "deepseek";
-    const provider = getProvider(pid);
-    const mid = modelId || provider.models[0].id;
-
+    let pid: ProviderId = (providerId as ProviderId) || "deepseek";
+    let provider = getProvider(pid);
+    let mid = modelId || provider.models[0].id;
     let effectiveKey = apiKey || "";
 
-    // 如果用户没有提供自己的 Key，需要校验会员/免费次数
+    // 如果用户没有提供自己的 Key
     if (!effectiveKey) {
-      let userId: string | null = null;
+      // 免费用户：自动使用 GLM-4-Flash（永久免费、不限次数）
+      const glmKey = process.env.GLM_API_KEY || process.env.DEEPSEEK_API_KEY || "";
 
-      try {
-        const supabase = await createClient();
-        const { data: { user: authUser } } = await supabase.auth.getUser();
-        if (authUser) userId = authUser.id;
-      } catch {
-        // Supabase 不可用时降级为匿名模式
-      }
-
-      if (userId) {
-        const access = await checkUserAccess(userId);
-
-        if (!access.ok) {
-          if (access.error === "free_exhausted") {
-            return NextResponse.json(
-              {
-                error: "free_exhausted",
-                message: "免费体验次数已用完，开通会员或填入 API Key 继续畅玩",
-              },
-              { status: 403 }
-            );
-          }
-          return NextResponse.json(
-            { error: access.error || "无法验证使用权限" },
-            { status: 403 }
-          );
-        }
+      if (glmKey) {
+        // 强制使用 GLM-4-Flash
+        pid = FREE_PROVIDER;
+        provider = getProvider(pid);
+        mid = FREE_MODEL;
+        effectiveKey = glmKey;
       } else {
-        if (!deviceId) {
-          return NextResponse.json(
-            { error: "未提供设备标识，请刷新页面重试" },
-            { status: 400 }
-          );
-        }
-
-        const deviceCheck = checkDeviceLimit(deviceId);
-        if (!deviceCheck.ok) {
-          return NextResponse.json(
-            {
-              error: "free_exhausted",
-              message: "免费体验次数已用完，开通会员、登录账号或填入 API Key 继续畅玩",
-            },
-            { status: 403 }
-          );
-        }
-      }
-
-      // 免费用户/会员：使用系统默认 DeepSeek Key
-      effectiveKey = process.env.DEEPSEEK_API_KEY || "";
-      // 系统 Key 只能用 DeepSeek
-      if (pid !== "deepseek" && !apiKey) {
-        // 用户选了其他 provider 但没填 Key → 提示需要填写
+        // 没有配置任何系统 Key
         return NextResponse.json(
           {
-            error: `使用 ${provider.label} 需要在设置中填写对应的 API Key`,
+            error: "服务暂时无法使用，请在设置中填写你的 API Key",
           },
-          { status: 401 }
+          { status: 503 }
         );
       }
-    }
-
-    if (!effectiveKey) {
-      return NextResponse.json(
-        { error: "未配置 API Key，请在设置中填写你的 API Key" },
-        { status: 401 }
-      );
     }
 
     // 构建请求参数
@@ -284,7 +161,6 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // 尝试提取错误信息
       let errorMsg = `${provider.label} 服务暂时不可用 (${response.status})`;
       try {
         const errJson = JSON.parse(errorText);

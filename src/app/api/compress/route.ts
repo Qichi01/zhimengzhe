@@ -7,6 +7,10 @@ import {
 
 export const runtime = "edge";
 
+// 免费模型配置（与 chat route 一致）
+const FREE_PROVIDER: ProviderId = "glm";
+const FREE_MODEL = "glm-4-flash";
+
 /**
  * 记忆压缩 API
  * 将一段对话历史压缩为简洁的摘要，用于减轻 AI 上下文长度压力
@@ -23,15 +27,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 解析 provider（默认 deepseek）
-    const pid: ProviderId = (providerId as ProviderId) || "deepseek";
-    const provider = getProvider(pid);
-    const mid = modelId || provider.models[0].id;
-
+    // 解析 provider
+    let pid: ProviderId = (providerId as ProviderId) || "deepseek";
+    let provider = getProvider(pid);
+    let mid = modelId || provider.models[0].id;
     let effectiveKey = apiKey || "";
+
+    // 如果用户没有提供自己的 Key，使用 GLM-4-Flash
     if (!effectiveKey) {
-      effectiveKey = process.env.DEEPSEEK_API_KEY || "";
-      if (!effectiveKey || pid !== "deepseek") {
+      const glmKey = process.env.GLM_API_KEY || process.env.DEEPSEEK_API_KEY || "";
+      if (glmKey) {
+        pid = FREE_PROVIDER;
+        provider = getProvider(pid);
+        mid = FREE_MODEL;
+        effectiveKey = glmKey;
+      } else {
         return new Response(
           JSON.stringify({ error: "未配置 API Key" }),
           { status: 401, headers: { "Content-Type": "application/json" } }
