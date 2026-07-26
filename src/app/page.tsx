@@ -29,9 +29,14 @@ export default function Home() {
 
   const loadGames = useCallback(async () => {
     setLoading(true);
-    const { data, count } = await getGames("local", 1, showAll ? 100 : PAGE_SIZE);
-    setGames(data ?? []);
-    setTotalCount(count ?? 0);
+    try {
+      const { data, count } = await getGames("local", 1, showAll ? 100 : PAGE_SIZE);
+      setGames(data ?? []);
+      setTotalCount(count ?? 0);
+    } catch {
+      setGames([]);
+      setTotalCount(0);
+    }
     setLoading(false);
   }, [showAll]);
 
