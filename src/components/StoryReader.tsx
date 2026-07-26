@@ -2,40 +2,77 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { useGameStore } from "@/stores/gameStore";
 import { useUserStore } from "@/stores/userStore";
 import { themes } from "@/lib/themes";
 import { parseAIResponse } from "@/lib/parser";
+import { buildSystemPrompt, buildInitialUserMessage, buildChoiceMessage } from "@/lib/prompts";
+import { buildContext, shouldCompress, getScenesToCompress, compressScenes } from "@/lib/contextBuilder";
+import { track } from "@/lib/analytics";
 import TypewriterText from "./TypewriterText";
 import OptionButtons from "./OptionButtons";
-import type { ChatMessage, Option, Scene, Theme, TypewriterSpeed } from "@/types";
+import {
+  createScene,
+  getNextSceneIndex,
+  createChapter,
+  touchGame,
+  upsertCharacter,
+  upsertRelationship,
+  createMap,
+  createSave,
+  pruneAutoSaves,
+  updateChapterSummary,
+  getDeviceId,
+} from "@/lib/localDb";
+import type {
+  Game,
+  SceneRecord,
+  Chapter,
+  Save,
+  ChatMessage,
+  Option,
+  Theme,
+  TypewriterSpeed,
+} from "@/types";
 
 interface StoryReaderProps {
-  /** 退出阅读器（返回首页） */
+  gameId: string;
+  game: Game;
+  initialScenes: SceneRecord[];
+  initialChapters: Chapter[];
+  savePoint: Save | null;
+  reviewMode?: boolean;
   onExit?: () => void;
 }
 
 const SPEED_OPTIONS: TypewriterSpeed[] = ["slow", "medium", "fast"];
 
-/**
- * 核心阅读器组件：
- * - 挂载时若已有对话历史但还没有场景，自动发起第一次 AI 请求
- * - 调用 /api/chat，读取流式 SSE 响应并逐字拼接完整文本
- * - 流结束后用 parseAIResponse 解析，创建 Scene 并写入 store
- * - 用户选择选项时构造 user message 并再次发起请求
- */
-export default function StoryReader({ onExit }: StoryReaderProps) {
-  // ---- 游戏状态 ----
-  const scenes = useGameStore((s) => s.scenes);
-  const messages = useGameStore((s) => s.messages);
-  const isLoading = useGameStore((s) => s.isLoading);
-  const addScene = useGameStore((s) => s.addScene);
-  const addMessage = useGameStore((s) => s.addMessage);
-  const setLoading = useGameStore((s) => s.setLoading);
-  const resetGame = useGameStore((s) => s.resetGame);
+interface DisplayScene {
+  id: string;
+  content: string;
+  options: Option[];
+  isEnding: boolean;
+  chapterTitle?: string;
+}
 
+/**
+ * V2.1 核心阅读器组件
+ * - 从 Supabase 加载历史场景
+ * - 支持 AI 流式响应 + 章节解析 + 类型专属功能
+ * - 场景写入 Supabase 持久化
+ */
+export default function StoryReader({
+  gameId,
+  game,
+  initialScenes,
+  initialChapters,
+  savePoint,
+  reviewMode = false,
+  onExit,
+}: StoryReaderProps) {
   // ---- 用户状态 ----
   const apiKey = useUserStore((s) => s.apiKey);
+  const providerId = useUserStore((s) => s.providerId);
+  const modelId = useUserStore((s) => s.modelId);
   const themeId = useUserStore((s) => s.themeId);
   const typewriterSpeed = useUserStore((s) => s.typewriterSpeed);
   const setThemeId = useUserStore((s) => s.setThemeId);
@@ -43,21 +80,48 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
 
   const theme: Theme = themes[themeId] ?? themes["dream-light"];
 
-  // ---- 本地 UI 状态 ----
+  // ---- 场景状态 ----
+  // 将 SceneRecord 转换为显示用的 DisplayScene
+  const [scenes, setScenes] = useState<DisplayScene[]>(() =>
+    initialScenes.map((s) => ({
+      id: s.id,
+      content: s.content,
+      options: s.options ?? [],
+      isEnding: s.is_ending,
+    }))
+  );
+
+  // 保留原始 SceneRecord（用于上下文构建和压缩）
+  const [rawScenes, setRawScenes] = useState<SceneRecord[]>(initialScenes);
+
+  // ---- 消息历史（发给 AI，使用优化的上下文构建） ----
+  const systemPrompt = buildSystemPrompt(game.type);
+  const initialUserMessage = buildInitialUserMessage(game.setting);
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    buildContext({
+      systemPrompt,
+      initialUserMessage,
+      chapters: initialChapters,
+      scenes: initialScenes,
+    })
+  );
+
+  const [chapters, setChapters] = useState<Chapter[]>(initialChapters);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [typingDone, setTypingDone] = useState(false);
   const [paused, setPaused] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  // 用 ref 标记是否已发起首次请求，避免放进 state 触发额外渲染
   const hasStartedRef = useRef(false);
 
-  const latestScene: Scene | undefined = scenes[scenes.length - 1];
+  const latestScene: DisplayScene | undefined = scenes[scenes.length - 1];
   const isEnding = Boolean(latestScene?.isEnding);
 
-  // 新场景到来时重置打字完成状态：采用「渲染期间调整 state」范式
-  // （React 官方推荐，等价于用 key 重置，但不触发 set-state-in-effect）
+  // 新场景到来时重置打字完成状态
   const [prevSceneId, setPrevSceneId] = useState<string | undefined>(
     latestScene?.id
   );
@@ -66,7 +130,13 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
     setTypingDone(false);
   }
 
-  // 自动滚动到底部
+  // ---- Toast 辅助 ----
+  const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 2500);
+  }, []);
+
+  // ---- 自动滚动
   useEffect(() => {
     const el = scrollRef.current;
     if (el) {
@@ -74,12 +144,19 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
     }
   }, [latestScene?.id, typingDone, isLoading]);
 
+  // ---- 当前章节追踪 ----
+  const currentChapterRef = useRef<Chapter | null>(
+    chapters.length > 0 ? chapters[chapters.length - 1] : null
+  );
+
   // ---- 核心：调用 AI（流式） ----
   const callAI = useCallback(
     async (msgs: ChatMessage[]) => {
+      if (reviewMode) return; // 回顾模式不调用 AI
+
       setError(null);
       setPaused(false);
-      setLoading(true);
+      setIsLoading(true);
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -88,17 +165,38 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: msgs, apiKey: apiKey || "" }),
+          body: JSON.stringify({
+            messages: msgs,
+            apiKey: apiKey || "",
+            deviceId: getDeviceId(),
+            providerId,
+            modelId,
+          }),
           signal: controller.signal,
         });
 
         if (!res.ok) {
           let msg = "梦境暂时中断，请稍后重试";
+          let isPaywall = false;
           try {
             const data = await res.json();
-            if (data?.error) msg = data.error;
+            if (data?.error === "free_exhausted") {
+              isPaywall = true;
+              msg = "免费体验次数已用完，开通会员或填入 API Key 继续畅玩";
+              track("hit_paywall", { trigger: "free_exhausted" });
+            } else if (data?.error) {
+              msg = data.error;
+            }
           } catch {
-            /* 响应不是 JSON，使用默认提示 */
+            /* ignore */
+          }
+
+          if (isPaywall) {
+            // 触发付费引导
+            setError("FREE_EXHAUSTED");
+            setIsLoading(false);
+            abortRef.current = null;
+            return;
           }
           throw new Error(msg);
         }
@@ -111,7 +209,6 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
         let full = "";
         let streamDone = false;
 
-        // 逐块读取 SSE 流
         while (!streamDone) {
           const { done, value } = await reader.read();
           if (done) {
@@ -120,8 +217,6 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
           }
 
           buffer += decoder.decode(value, { stream: true });
-
-          // 按行切分，最后不完整的一行保留到 buffer
           const lines = buffer.split("\n");
           buffer = lines.pop() ?? "";
 
@@ -135,12 +230,12 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
               const delta: unknown = json?.choices?.[0]?.delta?.content;
               if (typeof delta === "string") full += delta;
             } catch {
-              /* 部分 JSON，忽略，等下一块补全 */
+              /* ignore */
             }
           }
         }
 
-        // 冲刷 decoder 剩余字节，并处理 buffer 中残留的最后一行
+        // 冲刷剩余字节
         buffer += decoder.decode();
         const tail = buffer.trim();
         if (tail.startsWith("data:")) {
@@ -151,7 +246,7 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
               const delta: unknown = json?.choices?.[0]?.delta?.content;
               if (typeof delta === "string") full += delta;
             } catch {
-              /* 忽略 */
+              /* ignore */
             }
           }
         }
@@ -160,54 +255,264 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
           throw new Error("AI 未返回任何内容，请重试");
         }
 
-        // 解析并写入场景
+        // 解析 AI 回复
         const parsed = parseAIResponse(full);
-        const scene: Scene = {
-          id: `scene-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+
+        // 处理章节标记
+        let chapterTitle: string | undefined;
+        if (parsed.chapterMarker) {
+          const existingChapter = chapters.find(
+            (c) => c.chapter_number === parsed.chapterMarker!.number
+          );
+          if (!existingChapter) {
+            // 新章节开始 → 压缩上一章
+            const prevChapter = currentChapterRef.current;
+            if (prevChapter && !prevChapter.summary) {
+              // 异步压缩上一章，不阻塞当前流程
+              void (async () => {
+                const scenesToCompress = getScenesToCompress(rawScenes, prevChapter);
+                if (scenesToCompress.length > 0) {
+                  const { summary } = await compressScenes(
+                    scenesToCompress,
+                    prevChapter.title,
+                    apiKey,
+                    providerId,
+                    modelId
+                  );
+                  if (summary) {
+                    await updateChapterSummary(prevChapter.id, summary);
+                    // 更新本地章节状态
+                    setChapters((prev) =>
+                      prev.map((c) =>
+                        c.id === prevChapter.id
+                          ? { ...c, summary, status: "completed" as const }
+                          : c
+                      )
+                    );
+                  }
+                }
+              })();
+            }
+
+            // 创建新章节
+            const { data: newChapter } = await createChapter(
+              gameId,
+              parsed.chapterMarker.number,
+              parsed.chapterMarker.title
+            );
+            if (newChapter) {
+              setChapters((prev) => [...prev, newChapter]);
+              currentChapterRef.current = newChapter;
+              // 上一章完成，触发埋点
+              if (parsed.chapterMarker.number > 1) {
+                track("complete_chapter", {
+                  chapter_number: parsed.chapterMarker.number - 1,
+                });
+              }
+            }
+          } else {
+            currentChapterRef.current = existingChapter;
+          }
+          chapterTitle = parsed.chapterMarker.title;
+        }
+
+        // 写入场景到 Supabase
+        const orderIndex = await getNextSceneIndex(gameId);
+        const currentChapter = currentChapterRef.current;
+        const { data: sceneRecord } = await createScene({
+          chapter_id: currentChapter?.id ?? "",
+          game_id: gameId,
+          content: parsed.content,
+          options: parsed.options.length > 0 ? parsed.options : null,
+          ai_raw_response: full,
+          is_ending: parsed.isEnding,
+          order_index: orderIndex,
+        });
+
+        // 构建完整的 SceneRecord
+        const newRawScene: SceneRecord = sceneRecord ?? {
+          id: `temp-${Date.now()}`,
+          chapter_id: currentChapter?.id ?? "",
+          game_id: gameId,
+          content: parsed.content,
+          options: parsed.options.length > 0 ? parsed.options : null,
+          ai_raw_response: full,
+          is_ending: parsed.isEnding,
+          order_index: orderIndex,
+          created_at: new Date().toISOString(),
+        };
+
+        // 更新原始场景数据
+        setRawScenes((prev) => [...prev, newRawScene]);
+
+        // 更新 UI
+        const displayScene: DisplayScene = {
+          id: newRawScene.id,
           content: parsed.content,
           options: parsed.options,
           isEnding: parsed.isEnding,
-          timestamp: Date.now(),
+          chapterTitle,
         };
-        addScene(scene);
-        addMessage({ role: "assistant", content: full });
+        setScenes((prev) => [...prev, displayScene]);
+
+        // 更新消息历史（追加 assistant 回复）
+        setMessages((prev) => [...prev, { role: "assistant", content: full }]);
+
+        // 检测是否需要压缩当前章节（场景过多时）
+        if (shouldCompress([...rawScenes, newRawScene], currentChapter)) {
+          const scenesToCompress = getScenesToCompress(
+            [...rawScenes, newRawScene],
+            currentChapter
+          );
+          if (scenesToCompress.length > 0) {
+            // 异步压缩，不阻塞用户操作
+            void (async () => {
+              const { summary } = await compressScenes(
+                scenesToCompress,
+                currentChapter?.title ?? null,
+                apiKey,
+                providerId,
+                modelId
+              );
+              if (summary && currentChapter) {
+                await updateChapterSummary(currentChapter.id, summary);
+                setChapters((prev) =>
+                  prev.map((c) =>
+                    c.id === currentChapter.id
+                      ? { ...c, summary, status: "completed" as const }
+                      : c
+                  )
+                );
+                // 重建优化后的上下文
+                const updatedChapters = chapters.map((c) =>
+                  c.id === currentChapter.id
+                    ? { ...c, summary, status: "completed" as const }
+                    : c
+                );
+                const newContext = buildContext({
+                  systemPrompt,
+                  initialUserMessage,
+                  chapters: updatedChapters,
+                  scenes: [...rawScenes, newRawScene],
+                });
+                setMessages(newContext);
+                showToast("记忆已压缩 ✓");
+              }
+            })();
+          }
+        }
+
+        // 处理关系更新（乙游）
+        if (parsed.relationshipUpdates && parsed.relationshipUpdates.length > 0) {
+          for (const update of parsed.relationshipUpdates) {
+            const { data: character } = await upsertCharacter({
+              game_id: gameId,
+              name: update.characterName,
+              description: update.description ?? null,
+              role: "major",
+              first_appearance_chapter: parsed.chapterMarker?.number ?? null,
+              avatar_color: "#c8aaff",
+            });
+            if (character) {
+              await upsertRelationship(gameId, character.id, update.relationLabel);
+            }
+          }
+        }
+
+        // 处理场景布局（悬疑）
+        if (parsed.sceneLayout && parsed.sceneLayout.rooms.length > 0) {
+          await createMap(
+            gameId,
+            parsed.sceneLayout.locationName,
+            { rooms: parsed.sceneLayout.rooms },
+            currentChapter?.id,
+          );
+        }
+
+        // 更新游戏最后游玩时间
+        await touchGame(gameId);
+
+        // 如果是结局，创建自动存档
+        if (parsed.isEnding) {
+          await createSave(
+            gameId,
+            currentChapter?.id ?? null,
+            orderIndex,
+            "结局存档",
+            "auto"
+          );
+        }
       } catch (err) {
         const e = err as Error;
-        // 用户主动取消（暂停）不算错误
         if (e.name === "AbortError") return;
         setError(e.message || "未知错误，请重试");
       } finally {
-        setLoading(false);
+        setIsLoading(false);
         abortRef.current = null;
       }
     },
-    [apiKey, addScene, addMessage, setLoading]
+    [apiKey, providerId, modelId, gameId, game.type, chapters, reviewMode, rawScenes, systemPrompt, initialUserMessage]
   );
 
-  // ---- 挂载时自动发起第一次请求 ----
-  // 这是「挂载后与外部系统（AI API）同步」的正当副作用：发起流式请求。
-  // callAI 内部会同步 setLoading(true) 标记请求开始，属于副作用的一部分。
+  // ---- 挂载时自动发起第一次请求（新游戏时） ----
   useEffect(() => {
     if (hasStartedRef.current) return;
-    if (messages.length > 0 && scenes.length === 0) {
+    if (reviewMode) return;
+    // 新游戏：有初始消息但没有场景
+    if (messages.length > 0 && scenes.length === 0 && !savePoint) {
       hasStartedRef.current = true;
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       void callAI(messages);
     }
-  }, [messages, scenes.length, callAI]);
+    // 从存档继续：有消息且有场景，不需要自动请求
+    if (scenes.length > 0) {
+      hasStartedRef.current = true;
+    }
+  }, [messages, scenes.length, savePoint, reviewMode, callAI]);
 
   // ---- 用户选择选项 ----
   const handleChooseOption = useCallback(
     (option: Option) => {
-      const userContent = `我选择：${option.label}. ${option.text}`;
+      const userContent = buildChoiceMessage(`${option.label}. ${option.text}`);
       const userMessage: ChatMessage = { role: "user", content: userContent };
-      addMessage(userMessage);
-      // 注意：addMessage 是异步状态更新，这里用本地拼接保证传入最新消息
+      setMessages((prev) => [...prev, userMessage]);
       const newMessages = [...messages, userMessage];
       void callAI(newMessages);
     },
-    [messages, addMessage, callAI]
+    [messages, callAI]
   );
+
+  // ---- 手动存档 ----
+  const handleSave = async () => {
+    if (scenes.length === 0) {
+      showToast("暂无场景可存档", "error");
+      return;
+    }
+    try {
+      const orderIndex = scenes.length - 1;
+      const currentChapter = currentChapterRef.current;
+      const chapterLabel = currentChapter?.title
+        ? `· ${currentChapter.title}`
+        : currentChapter
+          ? `· 第${currentChapter.chapter_number}章`
+          : "";
+      const label = `第${scenes.length}场景 ${chapterLabel}`;
+      const { error: saveError } = await createSave(
+        gameId,
+        currentChapter?.id ?? null,
+        orderIndex,
+        label,
+        "manual"
+      );
+      if (saveError) {
+        showToast("存档失败，请重试", "error");
+      } else {
+        showToast("存档成功 ✓");
+        track("save_game", { chapter_number: currentChapter?.chapter_number });
+      }
+    } catch {
+      showToast("存档失败，请重试", "error");
+    }
+  };
 
   // ---- 暂停 / 继续 ----
   const handlePause = () => {
@@ -215,7 +520,7 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
       abortRef.current.abort();
       abortRef.current = null;
     }
-    setLoading(false);
+    setIsLoading(false);
     setPaused(true);
   };
 
@@ -224,17 +529,34 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
     void callAI(messages);
   };
 
-  // ---- 结局后重新开始 ----
-  const handleRestart = () => {
-    resetGame();
+  // ---- 返回 ----
+  const handleExit = async () => {
+    // 自动存档
+    if (scenes.length > 0 && !reviewMode) {
+      try {
+        const orderIndex = scenes.length - 1;
+        const currentChapter = currentChapterRef.current;
+        const chapterLabel = currentChapter?.title
+          ? `· ${currentChapter.title}`
+          : currentChapter
+            ? `· 第${currentChapter.chapter_number}章`
+            : "";
+        const label = `第${scenes.length}场景 ${chapterLabel}`;
+        await createSave(gameId, currentChapter?.id ?? null, orderIndex, label, "auto");
+        await pruneAutoSaves(gameId, 10);
+      } catch {
+        // 静默失败，不阻断退出
+      }
+    }
     onExit?.();
   };
 
-  // ---- 选项是否展示：打字完成 + 非加载 + 无错误 + 非结局 ----
+  // ---- 选项是否展示 ----
   const showOptions =
     !isLoading &&
     !error &&
     !paused &&
+    !reviewMode &&
     Boolean(latestScene) &&
     !isEnding &&
     latestScene !== undefined &&
@@ -244,7 +566,7 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
   return (
     <div
       style={{
-        minHeight: "100vh",
+        height: "100vh",
         width: "100%",
         background: theme.bgGradient,
         color: theme.textPrimary,
@@ -254,50 +576,109 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
         overflow: "hidden",
       }}
     >
+      {/* ===== 顶部信息栏 ===== */}
+      <div
+        style={{
+          flexShrink: 0,
+          padding: "12px 24px",
+          borderBottom: `1px solid ${theme.optionBorder}`,
+          background: "rgba(0,0,0,0.2)",
+          backdropFilter: "blur(8px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <span style={{ color: theme.accentColor, fontSize: "14px", fontWeight: 600 }}>
+            {game.title}
+          </span>
+          {latestScene?.chapterTitle && (
+            <span style={{ color: theme.textSecondary, fontSize: "13px" }}>
+              · {latestScene.chapterTitle}
+            </span>
+          )}
+        </div>
+        {reviewMode && (
+          <span style={{ color: theme.accentColor, fontSize: "12px", fontStyle: "italic" }}>
+            剧情回顾模式
+          </span>
+        )}
+      </div>
+
       {/* ===== 可滚动的故事区域 ===== */}
       <div
         ref={scrollRef}
         className="story-scroll"
         style={{
           flex: 1,
+          minHeight: 0,
           overflowY: "auto",
           overflowX: "hidden",
-          padding: "72px 24px 24px",
+          padding: "24px 24px 24px",
         }}
       >
         <div style={{ maxWidth: "680px", width: "100%", margin: "0 auto" }}>
           {/* 历史场景（半透明） */}
           {scenes.slice(0, -1).map((scene) => (
-            <div
-              key={scene.id}
-              style={{
-                opacity: 0.4,
-                marginBottom: "28px",
-                color: theme.textSecondary,
-                lineHeight: 1.9,
-                fontSize: "16px",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {scene.content}
+            <div key={scene.id} style={{ marginBottom: "28px" }}>
+              {scene.chapterTitle && (
+                <div
+                  style={{
+                    color: theme.accentColor,
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    marginBottom: "8px",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  ✦ {scene.chapterTitle}
+                </div>
+              )}
+              <div
+                style={{
+                  opacity: 0.4,
+                  color: theme.textSecondary,
+                  lineHeight: 1.9,
+                  fontSize: "16px",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {scene.content}
+              </div>
             </div>
           ))}
 
           {/* 最新场景：打字机逐字显示 */}
           {latestScene && !isLoading && !error && (
-            <div
-              style={{
-                lineHeight: 1.95,
-                fontSize: "17px",
-                whiteSpace: "pre-wrap",
-                color: theme.textPrimary,
-              }}
-            >
-              <TypewriterText
-                text={latestScene.content}
-                speed={typewriterSpeed}
-                onComplete={() => setTypingDone(true)}
-              />
+            <div>
+              {latestScene.chapterTitle && (
+                <div
+                  style={{
+                    color: theme.accentColor,
+                    fontSize: "15px",
+                    fontWeight: 600,
+                    marginBottom: "12px",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  ✦ {latestScene.chapterTitle}
+                </div>
+              )}
+              <div
+                style={{
+                  lineHeight: 1.95,
+                  fontSize: "17px",
+                  whiteSpace: "pre-wrap",
+                  color: theme.textPrimary,
+                }}
+              >
+                <TypewriterText
+                  text={latestScene.content}
+                  speed={typewriterSpeed}
+                  onComplete={() => setTypingDone(true)}
+                />
+              </div>
             </div>
           )}
 
@@ -319,7 +700,7 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
           )}
 
           {/* 错误提示 */}
-          {error && (
+          {error && error !== "FREE_EXHAUSTED" && (
             <div
               style={{
                 padding: "16px",
@@ -341,7 +722,52 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
             </div>
           )}
 
-          {/* 暂停提示 */}
+          {/* 免费次数耗尽提示 */}
+          {error === "FREE_EXHAUSTED" && (
+            <div
+              style={{
+                padding: "20px",
+                borderRadius: theme.borderRadius,
+                background: "rgba(200, 170, 255, 0.1)",
+                border: "1px solid rgba(200, 170, 255, 0.3)",
+                color: theme.textPrimary,
+                fontSize: "15px",
+                textAlign: "center",
+              }}
+            >
+              <p style={{ margin: "0 0 16px", lineHeight: 1.7 }}>
+                免费体验次数已用完
+                <br />
+                <span style={{ color: theme.textSecondary, fontSize: "13px" }}>
+                  开通会员或填入 API Key 继续畅玩
+                </span>
+              </p>
+              <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+                <a
+                  href="/membership"
+                  style={{
+                    ...accentBtnStyle(theme),
+                    textDecoration: "none",
+                    display: "inline-block",
+                  }}
+                >
+                  开通会员
+                </a>
+                <a
+                  href="/settings"
+                  style={{
+                    ...retryBtnStyle(theme),
+                    textDecoration: "none",
+                    display: "inline-block",
+                    padding: "10px 28px",
+                  }}
+                >
+                  填入 Key
+                </a>
+              </div>
+            </div>
+          )}
+
           {paused && !isLoading && !error && (
             <div style={{ color: theme.textSecondary, fontStyle: "italic" }}>
               已暂停
@@ -361,7 +787,6 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
         }}
       >
         <div style={{ maxWidth: "680px", margin: "0 auto" }}>
-          {/* 选项按钮 */}
           {showOptions && latestScene && (
             <OptionButtons
               options={latestScene.options}
@@ -371,7 +796,6 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
             />
           )}
 
-          {/* 加载状态 */}
           {isLoading && (
             <div
               style={{
@@ -386,8 +810,7 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
             </div>
           )}
 
-          {/* 暂停后继续 */}
-          {paused && !isLoading && !error && (
+          {paused && !isLoading && !error && !reviewMode && (
             <div style={{ textAlign: "center", padding: "8px 0" }}>
               <button
                 type="button"
@@ -399,7 +822,6 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
             </div>
           )}
 
-          {/* 结局 */}
           {isEnding && !isLoading && !error && (
             <div style={{ textAlign: "center", padding: "12px 0" }}>
               <p
@@ -415,13 +837,13 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
               </p>
               <button
                 type="button"
-                onClick={handleRestart}
+                onClick={() => onExit?.()}
                 style={{
                   ...accentBtnStyle(theme),
                   boxShadow: `0 0 22px ${theme.glowColor}`,
                 }}
               >
-                重新开始
+                返回
               </button>
             </div>
           )}
@@ -437,20 +859,39 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
               borderTop: `1px solid ${theme.optionBorder}`,
             }}
           >
+            {!reviewMode && (
+              <>
+                <button
+                  type="button"
+                  onClick={handlePause}
+                  disabled={!isLoading}
+                  style={controlBtnStyle(theme, !isLoading)}
+                >
+                  暂停
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={isLoading || scenes.length === 0}
+                  style={controlBtnStyle(theme, isLoading || scenes.length === 0)}
+                >
+                  存档
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onExit?.()}
+                  style={controlBtnStyle(theme, isLoading)}
+                >
+                  读档
+                </button>
+              </>
+            )}
             <button
               type="button"
-              onClick={handlePause}
-              disabled={!isLoading}
-              style={controlBtnStyle(theme, !isLoading)}
-            >
-              暂停
-            </button>
-            <button
-              type="button"
-              onClick={() => onExit?.()}
+              onClick={handleExit}
               style={controlBtnStyle(theme, false)}
             >
-              返回首页
+              {reviewMode ? "返回" : "退出"}
             </button>
             <button
               type="button"
@@ -472,7 +913,6 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
                 border: `1px solid ${theme.optionBorder}`,
               }}
             >
-              {/* 主题切换 */}
               <div style={{ marginBottom: "14px" }}>
                 <div style={settingLabelStyle(theme)}>主题</div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -489,7 +929,6 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
                 </div>
               </div>
 
-              {/* 打字机速度 */}
               <div>
                 <div style={settingLabelStyle(theme)}>打字机速度</div>
                 <div style={{ display: "flex", gap: "8px" }}>
@@ -509,6 +948,38 @@ export default function StoryReader({ onExit }: StoryReaderProps) {
           )}
         </div>
       </div>
+
+      {/* ===== Toast 提示 ===== */}
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            top: "70px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 100,
+            padding: "10px 24px",
+            borderRadius: theme.borderRadius,
+            background:
+              toast.type === "success"
+                ? "rgba(100, 200, 120, 0.15)"
+                : "rgba(255, 100, 100, 0.15)",
+            border: `1px solid ${
+              toast.type === "success"
+                ? "rgba(100, 200, 120, 0.4)"
+                : "rgba(255, 100, 100, 0.4)"
+            }`,
+            backdropFilter: "blur(8px)",
+            color: toast.type === "success" ? "#a0e8b0" : "#ffb4b4",
+            fontSize: "14px",
+            fontWeight: 500,
+            animation: "toastSlide 0.3s ease",
+            pointerEvents: "none",
+          }}
+        >
+          {toast.msg}
+        </div>
+      )}
     </div>
   );
 }
