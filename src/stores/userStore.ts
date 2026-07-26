@@ -75,15 +75,19 @@ export const useUserStore = create<UserState>()(
 
       // 从 Supabase 同步用户会员资料（已登录时调用）
       syncProfile: async (userId) => {
-        const { data, error } = await getUserProfile(userId);
-        if (error || !data) return;
+        try {
+          const { data, error } = await getUserProfile(userId);
+          if (error || !data) return;
 
-        set({
-          membershipPlan: data.membership_plan,
-          membershipExpiresAt: data.membership_expires_at,
-          freeTrialUsed: data.free_trial_used,
-          profileSyncedAt: Date.now(),
-        });
+          set({
+            membershipPlan: data.membership_plan,
+            membershipExpiresAt: data.membership_expires_at,
+            freeTrialUsed: data.free_trial_used,
+            profileSyncedAt: Date.now(),
+          });
+        } catch {
+          // Supabase 不可用时静默失败，不阻塞应用
+        }
       },
 
       // 从本地缓存同步会员资料（未登录时调用）

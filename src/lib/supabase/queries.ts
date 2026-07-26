@@ -1,4 +1,5 @@
 import { createClient } from "./client";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   Game,
   Chapter,
@@ -12,6 +13,18 @@ import type {
   GameType,
 } from "@/types";
 
+/**
+ * 获取 Supabase 客户端，如果未配置则抛出错误
+ * 这样调用方可以用 try-catch 优雅处理
+ */
+function getClient(): SupabaseClient {
+  const client = createClient();
+  if (!client) {
+    throw new Error("Supabase not configured");
+  }
+  return client;
+}
+
 // ============================================================
 // 游戏相关查询
 // ============================================================
@@ -22,7 +35,7 @@ export async function getGames(
   page = 1,
   pageSize = 8
 ): Promise<{ data: Game[] | null; count: number | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
@@ -41,7 +54,7 @@ export async function getGames(
 export async function getGame(
   gameId: string
 ): Promise<{ data: Game | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("games")
     .select("*")
@@ -60,7 +73,7 @@ export async function createGame(
   setting: string,
   coverColor = "#c8aaff"
 ): Promise<{ data: Game | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("games")
     .insert({
@@ -79,7 +92,7 @@ export async function createGame(
 
 /** 更新游戏最后游玩时间 */
 export async function touchGame(gameId: string): Promise<void> {
-  const supabase = createClient();
+  const supabase = getClient();
   await supabase
     .from("games")
     .update({ last_played_at: new Date().toISOString() })
@@ -90,7 +103,7 @@ export async function touchGame(gameId: string): Promise<void> {
 export async function deleteGame(
   gameId: string
 ): Promise<{ error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { error } = await supabase.from("games").delete().eq("id", gameId);
   return { error: error?.message ?? null };
 }
@@ -103,7 +116,7 @@ export async function deleteGame(
 export async function getChapters(
   gameId: string
 ): Promise<{ data: Chapter[] | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("chapters")
     .select("*")
@@ -120,7 +133,7 @@ export async function createChapter(
   chapterNumber: number,
   title?: string
 ): Promise<{ data: Chapter | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("chapters")
     .insert({
@@ -140,7 +153,7 @@ export async function updateChapterSummary(
   chapterId: string,
   summary: string
 ): Promise<{ error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { error } = await supabase
     .from("chapters")
     .update({ summary, status: "completed" })
@@ -156,7 +169,7 @@ export async function updateChapterSummary(
 export async function getScenes(
   gameId: string
 ): Promise<{ data: SceneRecord[] | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("scenes")
     .select("*")
@@ -171,7 +184,7 @@ export async function getScenes(
 export async function getScenesByChapter(
   chapterId: string
 ): Promise<{ data: SceneRecord[] | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("scenes")
     .select("*")
@@ -186,7 +199,7 @@ export async function getScenesByChapter(
 export async function createScene(
   scene: Omit<SceneRecord, "id" | "created_at">
 ): Promise<{ data: SceneRecord | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("scenes")
     .insert(scene)
@@ -201,7 +214,7 @@ export async function createScene(
 export async function getNextSceneIndex(
   gameId: string
 ): Promise<number> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data } = await supabase
     .from("scenes")
     .select("order_index")
@@ -222,7 +235,7 @@ export async function getSaves(
   gameId: string,
   saveType?: "auto" | "manual"
 ): Promise<{ data: Save[] | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   let query = supabase
     .from("saves")
     .select("*")
@@ -244,7 +257,7 @@ export async function createSave(
   label: string,
   saveType: "auto" | "manual"
 ): Promise<{ data: Save | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("saves")
     .insert({
@@ -263,7 +276,7 @@ export async function createSave(
 
 /** 删除存档 */
 export async function deleteSave(saveId: string): Promise<{ error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { error } = await supabase.from("saves").delete().eq("id", saveId);
   return { error: error?.message ?? null };
 }
@@ -277,7 +290,7 @@ export async function pruneAutoSaves(
   if (!data || data.length <= keepCount) return;
 
   const toDelete = data.slice(keepCount);
-  const supabase = createClient();
+  const supabase = getClient();
   for (const save of toDelete) {
     await supabase.from("saves").delete().eq("id", save.id);
   }
@@ -291,7 +304,7 @@ export async function pruneAutoSaves(
 export async function getCharacters(
   gameId: string
 ): Promise<{ data: Character[] | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("characters")
     .select("*")
@@ -306,7 +319,7 @@ export async function getCharacters(
 export async function upsertCharacter(
   character: Omit<Character, "id" | "created_at">
 ): Promise<{ data: Character | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
 
   // 先查找同名角色
   const { data: existing } = await supabase
@@ -347,7 +360,7 @@ export async function upsertCharacter(
 export async function getRelationships(
   gameId: string
 ): Promise<{ data: Relationship[] | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("relationships")
     .select("*")
@@ -364,7 +377,7 @@ export async function upsertRelationship(
   characterId: string,
   relationLabel: string
 ): Promise<{ error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
 
   // 先查找是否已有关系记录
   const { data: existing } = await supabase
@@ -406,7 +419,7 @@ export async function upsertRelationship(
 export async function getClues(
   gameId: string
 ): Promise<{ data: Clue[] | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("clues")
     .select("*")
@@ -423,7 +436,7 @@ export async function createClue(
   content: string,
   note?: string
 ): Promise<{ data: Clue | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("clues")
     .insert({ game_id: gameId, content, note: note ?? null })
@@ -439,7 +452,7 @@ export async function updateClueNote(
   clueId: string,
   note: string
 ): Promise<{ error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { error } = await supabase
     .from("clues")
     .update({ note })
@@ -449,7 +462,7 @@ export async function updateClueNote(
 
 /** 删除线索 */
 export async function deleteClue(clueId: string): Promise<{ error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { error } = await supabase.from("clues").delete().eq("id", clueId);
   return { error: error?.message ?? null };
 }
@@ -462,7 +475,7 @@ export async function deleteClue(clueId: string): Promise<{ error: string | null
 export async function getMaps(
   gameId: string
 ): Promise<{ data: GameMap[] | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("maps")
     .select("*")
@@ -481,7 +494,7 @@ export async function createMap(
   chapterId?: string,
   svgContent?: string
 ): Promise<{ data: GameMap | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("maps")
     .insert({
@@ -506,7 +519,7 @@ export async function createMap(
 export async function getUserProfile(
   userId: string
 ): Promise<{ data: UserProfile | null; error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data, error } = await supabase
     .from("user_profiles")
     .select("*")
@@ -521,7 +534,7 @@ export async function getUserProfile(
 export async function incrementFreeTrial(
   userId: string
 ): Promise<{ error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const { data: profile } = await supabase
     .from("user_profiles")
     .select("free_trial_used")
@@ -542,7 +555,7 @@ export async function updateMembership(
   userId: string,
   plan: "monthly" | "quarterly"
 ): Promise<{ error: string | null }> {
-  const supabase = createClient();
+  const supabase = getClient();
   const now = new Date();
   const expiresAt = new Date(now);
   if (plan === "monthly") expiresAt.setMonth(expiresAt.getMonth() + 1);

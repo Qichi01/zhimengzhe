@@ -23,21 +23,32 @@ export const useAuthStore = create<AuthState>((set) => ({
   isInitialized: false,
 
   initAuth: async () => {
-    const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    set({ user: session?.user ?? null, isInitialized: true });
+    try {
+      const supabase = createClient();
+      if (!supabase) {
+        // Supabase 未配置，跳过认证初始化
+        set({ isInitialized: true });
+        return;
+      }
+      const { data: { session } } = await supabase.auth.getSession();
+      set({ user: session?.user ?? null, isInitialized: true });
 
-    // 监听认证状态变化
-    supabase.auth.onAuthStateChange((_event, session) => {
-      set({ user: session?.user ?? null });
-    });
+      // 监听认证状态变化
+      supabase.auth.onAuthStateChange((_event, session) => {
+        set({ user: session?.user ?? null });
+      });
+    } catch {
+      // 认证初始化失败，不阻塞应用
+      set({ isInitialized: true });
+    }
   },
 
   // 发送验证码到邮箱
   sendOtp: async (email) => {
-    set({ isLoading: true });
     const supabase = createClient();
+    if (!supabase) return { error: "账号系统暂未启用" };
 
+    set({ isLoading: true });
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { shouldCreateUser: true },
@@ -49,9 +60,10 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   // 验证 6 位验证码
   verifyOtp: async (email, token) => {
-    set({ isLoading: true });
     const supabase = createClient();
+    if (!supabase) return { error: "账号系统暂未启用" };
 
+    set({ isLoading: true });
     const { data, error } = await supabase.auth.verifyOtp({
       email,
       token,
@@ -71,6 +83,10 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signOut: async () => {
     const supabase = createClient();
+    if (!supabase) {
+      set({ user: null });
+      return;
+    }
     await supabase.auth.signOut();
     set({ user: null });
   },
