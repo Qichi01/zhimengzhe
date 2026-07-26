@@ -13,5 +13,10 @@ export function createClient() {
     return null;
   }
 
-  return createBrowserClient(url, anonKey);
+  try {
+    return createBrowserClient(url, anonKey);
+  } catch {
+    // 环境变量值无效时返回 null，不崩溃
+    return null;
+  }
 }
