@@ -112,14 +112,17 @@ export async function POST(req: NextRequest) {
     // 如果用户没有提供自己的 Key
     if (!effectiveKey) {
       // 免费用户：自动使用 GLM-4-Flash（永久免费、不限次数）
-      const glmKey = process.env.GLM_API_KEY || process.env.DEEPSEEK_API_KEY || "";
+      const rawGlmKey = (process.env.GLM_API_KEY || "").trim();
+      const rawDeepKey = (process.env.DEEPSEEK_API_KEY || "").trim();
+      const glmKey = rawGlmKey || rawDeepKey || "";
 
       if (glmKey) {
         // 强制使用 GLM-4-Flash
         pid = FREE_PROVIDER;
         provider = getProvider(pid);
         mid = FREE_MODEL;
-        effectiveKey = glmKey;
+        // 确保只取第一行作为有效 Key（防止粘贴时带入多余换行）
+        effectiveKey = glmKey.split("\n")[0].trim();
       } else {
         // 没有配置任何系统 Key
         return NextResponse.json(

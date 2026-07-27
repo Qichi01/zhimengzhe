@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
 
     // 如果用户没有提供自己的 Key，使用 GLM-4-Flash
     if (!effectiveKey) {
-      const glmKey = process.env.GLM_API_KEY || process.env.DEEPSEEK_API_KEY || "";
+      const glmKey = ((process.env.GLM_API_KEY || process.env.DEEPSEEK_API_KEY || "").trim()).split("\n")[0].trim();
       if (glmKey) {
         pid = FREE_PROVIDER;
         provider = getProvider(pid);
