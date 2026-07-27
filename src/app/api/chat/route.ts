@@ -200,9 +200,10 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Chat API error:", error);
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error("Chat API error:", errMsg, error);
     return NextResponse.json(
-      { error: "梦境暂时中断，请稍后重试" },
+      { error: "梦境暂时中断，请稍后重试", debug: errMsg },
       { status: 500 }
     );
   }
