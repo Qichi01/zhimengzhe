@@ -553,14 +553,16 @@ export default function StoryReader({
   return (
     <div
       style={{
-        height: "100vh",
-        height: "100dvh",
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         width: "100%",
         background: theme.bgGradient,
         color: theme.textPrimary,
         display: "flex",
         flexDirection: "column",
-        position: "relative",
         overflow: "hidden",
       }}
     >
