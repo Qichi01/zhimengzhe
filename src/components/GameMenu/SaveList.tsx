@@ -8,6 +8,7 @@ interface SaveListProps {
   onLoad: (save: Save) => void;
   onDelete: (saveId: string) => void;
   onClose: () => void;
+  onCreateManual?: () => void;
 }
 
 function formatTime(dateStr: string): string {
@@ -30,6 +31,7 @@ export default function SaveList({
   onLoad,
   onDelete,
   onClose,
+  onCreateManual,
 }: SaveListProps) {
   const [tab, setTab] = useState<"auto" | "manual">("auto");
 
@@ -94,6 +96,20 @@ export default function SaveList({
 
         {/* 存档列表 */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
+          {/* 手动存档 tab 下显示创建按钮 */}
+          {tab === "manual" && onCreateManual && (
+            <button
+              onClick={onCreateManual}
+              className="w-full mb-3 rounded-xl py-3 text-sm font-medium transition-all duration-200 active:scale-95 hover:scale-[1.01]"
+              style={{
+                background: "linear-gradient(135deg, rgba(200,170,255,0.2) 0%, rgba(157,108,245,0.15) 100%)",
+                border: "1px solid rgba(200,170,255,0.3)",
+                color: "#c8aaff",
+              }}
+            >
+              + 创建手动存档
+            </button>
+          )}
           {filtered.length === 0 ? (
             <div className="text-center py-12">
               <p style={{ color: "rgba(213,184,245,0.4)" }} className="text-sm">

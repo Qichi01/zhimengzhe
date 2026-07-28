@@ -22,7 +22,10 @@ import {
   pruneAutoSaves,
   updateChapterSummary,
   getDeviceId,
+  getSaves,
+  deleteSave,
 } from "@/lib/localDb";
+import SaveList from "./GameMenu/SaveList";
 import type {
   Game,
   SceneRecord,
@@ -113,6 +116,8 @@ export default function StoryReader({
   const [typingDone, setTypingDone] = useState(false);
   const [paused, setPaused] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showSaveList, setShowSaveList] = useState(false);
+  const [saveList, setSaveList] = useState<Save[]>([]);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -495,9 +500,43 @@ export default function StoryReader({
       } else {
         showToast("存档成功 ✓");
         track("save_game", { chapter_number: currentChapter?.chapter_number });
+        // 如果存档列表开着，刷新列表
+        if (showSaveList) {
+          const { data } = await getSaves(gameId);
+          setSaveList(data ?? []);
+        }
       }
     } catch {
       showToast("存档失败，请重试", "error");
+    }
+  };
+
+  // ---- 打开存档列表 ----
+  const handleOpenSaveList = async () => {
+    try {
+      const { data } = await getSaves(gameId);
+      setSaveList(data ?? []);
+    } catch {
+      setSaveList([]);
+    }
+    setShowSaveList(true);
+  };
+
+  // ---- 从存档加载 ----
+  const handleLoadSave = (save: Save) => {
+    track("load_save", { scene_index: save.scene_index });
+    // 跳转到 play 页面并带上 save 参数
+    window.location.href = `/play/${gameId}?save=${save.id}`;
+  };
+
+  // ---- 删除存档 ----
+  const handleDeleteSave = async (saveId: string) => {
+    try {
+      await deleteSave(saveId);
+      setSaveList((prev) => prev.filter((s) => s.id !== saveId));
+      showToast("存档已删除");
+    } catch {
+      showToast("删除失败", "error");
     }
   };
 
@@ -825,7 +864,8 @@ export default function StoryReader({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onExit?.()}
+                  onClick={handleOpenSaveList}
+                  disabled={isLoading}
                   style={controlBtnStyle(theme, isLoading)}
                 >
                   读档
@@ -894,6 +934,17 @@ export default function StoryReader({
           )}
         </div>
       </div>
+
+      {/* ===== 存档列表弹窗 ===== */}
+      {showSaveList && (
+        <SaveList
+          saves={saveList}
+          onLoad={handleLoadSave}
+          onDelete={handleDeleteSave}
+          onClose={() => setShowSaveList(false)}
+          onCreateManual={handleSave}
+        />
+      )}
 
       {/* ===== Toast 提示 ===== */}
       {toast && (
