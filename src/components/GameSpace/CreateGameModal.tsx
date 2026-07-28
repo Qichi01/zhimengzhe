@@ -138,11 +138,12 @@ export default function CreateGameModal({
             onChange={(e) => setTitle(e.target.value)}
             placeholder="给你的梦境起个名字..."
             maxLength={30}
-            className="w-full rounded-xl px-4 py-3 text-sm outline-none transition-all focus:shadow-[0_0_20px_rgba(200,170,255,0.2)]"
+            className="w-full rounded-xl px-4 py-3 text-base outline-none transition-all focus:shadow-[0_0_20px_rgba(200,170,255,0.2)]"
             style={{
               color: "#e8d5f5",
               background: "rgba(200,170,255,0.05)",
               border: "1px solid rgba(200,170,255,0.15)",
+              fontSize: "16px",
             }}
           />
         </div>
@@ -160,11 +161,12 @@ export default function CreateGameModal({
             onChange={(e) => setSetting(e.target.value)}
             rows={4}
             placeholder="例如：你是一名失忆的公主，在梦中寻找记忆..."
-            className="w-full resize-none rounded-xl px-4 py-3 text-sm leading-relaxed outline-none transition-all focus:shadow-[0_0_20px_rgba(200,170,255,0.2)]"
+            className="w-full resize-none rounded-xl px-4 py-3 text-base leading-relaxed outline-none transition-all focus:shadow-[0_0_20px_rgba(200,170,255,0.2)]"
             style={{
               color: "#e8d5f5",
               background: "rgba(200,170,255,0.05)",
               border: "1px solid rgba(200,170,255,0.15)",
+              fontSize: "16px",
             }}
             autoFocus
           />

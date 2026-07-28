@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
@@ -6,6 +6,15 @@ import { AuthProvider } from "@/components/AuthProvider";
 export const metadata: Metadata = {
   title: "织梦者 — AI 互动小说阅读器",
   description: "用文字编织梦境",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#1e1b2e",
 };
 
 export default function RootLayout({

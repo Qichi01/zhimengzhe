@@ -407,8 +407,8 @@ export default function SettingsContent() {
                 placeholder={`${getProvider(selectedProvider).keyPrefix || "sk-"}xxxxxxxxxxxxxxxxxxxxxxxx`}
                 spellCheck={false}
                 autoComplete="off"
-                className="w-full bg-transparent px-4 py-3 pr-12 text-sm outline-none placeholder:text-[#6b5d85] focus:ring-0"
-                style={{ color: "#e8d5f5" }}
+                className="w-full bg-transparent px-4 py-3 pr-12 text-base outline-none placeholder:text-[#6b5d85] focus:ring-0"
+                style={{ color: "#e8d5f5", fontSize: "16px" }}
               />
               <button
                 type="button"
@@ -537,8 +537,8 @@ export default function SettingsContent() {
                   placeholder="XXXX-XXXX-XXXX-XXXX"
                   spellCheck={false}
                   autoComplete="off"
-                  className="w-full bg-transparent px-4 py-3 text-sm outline-none placeholder:text-[#6b5d85] focus:ring-0"
-                  style={{ color: "#e8d5f5" }}
+                  className="w-full bg-transparent px-4 py-3 text-base outline-none placeholder:text-[#6b5d85] focus:ring-0"
+                  style={{ color: "#e8d5f5", fontSize: "16px" }}
                 />
               </div>
               <button

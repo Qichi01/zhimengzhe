@@ -554,6 +554,7 @@ export default function StoryReader({
     <div
       style={{
         height: "100vh",
+        height: "100dvh",
         width: "100%",
         background: theme.bgGradient,
         color: theme.textPrimary,
@@ -568,6 +569,7 @@ export default function StoryReader({
         style={{
           flexShrink: 0,
           padding: "12px 24px",
+          paddingTop: "max(12px, env(safe-area-inset-top))",
           borderBottom: `1px solid ${theme.optionBorder}`,
           background: "rgba(0,0,0,0.2)",
           backdropFilter: "blur(8px)",
@@ -725,6 +727,7 @@ export default function StoryReader({
           background: "rgba(0,0,0,0.18)",
           backdropFilter: "blur(8px)",
           padding: "20px 24px 16px",
+          paddingBottom: "max(16px, env(safe-area-inset-bottom))",
         }}
       >
         <div style={{ maxWidth: "680px", margin: "0 auto" }}>
