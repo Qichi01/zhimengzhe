@@ -560,6 +560,33 @@ export async function setGeneratedCharacterAvatarIfEmpty(
   }
 }
 
+/**
+ * 为自动默认头像生成领取一次任务。
+ * 标记会先于网络请求写入，避免 React 严格模式、刷新或并发渲染重复请求。
+ */
+export async function claimCharacterAvatarAutoGeneration(
+  characterId: string
+): Promise<{
+  data: Character | null;
+  claimed: boolean;
+  error: string | null;
+}> {
+  try {
+    const character = await getOne<Character>("characters", characterId);
+    if (!character) {
+      return { data: null, claimed: false, error: "角色不存在" };
+    }
+    if (character.avatar || character.avatar_auto_attempted_at) {
+      return { data: character, claimed: false, error: null };
+    }
+    character.avatar_auto_attempted_at = new Date().toISOString();
+    await putRecord("characters", character);
+    return { data: character, claimed: true, error: null };
+  } catch (e) {
+    return { data: null, claimed: false, error: String(e) };
+  }
+}
+
 export async function getRelationships(
   gameId: string
 ): Promise<{ data: Relationship[] | null; error: string | null }> {

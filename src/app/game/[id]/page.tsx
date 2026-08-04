@@ -17,9 +17,52 @@ import {
   getRelationships,
   clearGameData,
   upsertCharacter,
+  claimCharacterAvatarAutoGeneration,
+  getDeviceId,
+  setGeneratedCharacterAvatarIfEmpty,
 } from "@/lib/localDb";
+import { generateCharacterAvatar } from "@/lib/avatarAssets";
 import { track } from "@/lib/analytics";
 import type { Game, Save, Chapter, SceneRecord, Character, Relationship } from "@/types";
+
+const MAX_AUTOMATIC_AVATARS_PER_VISIT = 6;
+
+async function generateMissingDefaultAvatars(
+  game: Game,
+  characters: Character[],
+  onUpdated: (character: Character) => void
+) {
+  const candidates = characters
+    .filter(
+      (character) =>
+        (character.role === "protagonist" || character.role === "major") &&
+        !character.avatar &&
+        !character.avatar_auto_attempted_at
+    )
+    .slice(0, MAX_AUTOMATIC_AVATARS_PER_VISIT);
+
+  for (const character of candidates) {
+    const claim = await claimCharacterAvatarAutoGeneration(character.id);
+    if (!claim.claimed || !claim.data) continue;
+
+    try {
+      const avatar = await generateCharacterAvatar({
+        characterName: claim.data.name,
+        description: claim.data.description,
+        gameType: game.type,
+        storySetting: game.setting,
+        deviceId: getDeviceId(),
+      });
+      const saved = await setGeneratedCharacterAvatarIfEmpty(
+        claim.data.id,
+        avatar
+      );
+      if (saved.data) onUpdated(saved.data);
+    } catch {
+      // 自动生成只尝试一次；失败保留首字头像，用户仍可手动重试或上传。
+    }
+  }
+}
 
 export default function GameMenuPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -75,6 +118,17 @@ export default function GameMenuPage({ params }: { params: Promise<{ id: string 
         }
       }
       setCharacters(loadedCharacters);
+      void generateMissingDefaultAvatars(
+        gameData,
+        loadedCharacters,
+        (updatedCharacter) => {
+          setCharacters((current) =>
+            current.map((character) =>
+              character.id === updatedCharacter.id ? updatedCharacter : character
+            )
+          );
+        }
+      );
 
       const { data: relData } = await getRelationships(id);
       setRelationships(relData ?? []);

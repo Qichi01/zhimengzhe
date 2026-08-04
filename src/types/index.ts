@@ -145,6 +145,7 @@ export interface Character {
   first_appearance_chapter: number | null;
   avatar_color: string;
   avatar?: CharacterAvatar | null;
+  avatar_auto_attempted_at?: string | null;
   created_at: string;
 }
 

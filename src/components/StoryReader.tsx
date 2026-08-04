@@ -32,6 +32,7 @@ import {
   deleteSave,
   updateSceneIllustration,
   setGeneratedCharacterAvatarIfEmpty,
+  claimCharacterAvatarAutoGeneration,
 } from "@/lib/localDb";
 import SaveList from "./GameMenu/SaveList";
 import type {
@@ -490,19 +491,25 @@ export default function StoryReader({
               await upsertRelationship(gameId, character.id, update.relationLabel);
               if (created && character.role === "major" && !character.avatar) {
                 // 默认头像在后台生成，不阻塞正文、选项或关系更新。
-                void generateCharacterAvatar({
-                  characterName: character.name,
-                  description: character.description,
-                  gameType: game.type,
-                  storySetting: game.setting,
-                  deviceId: getDeviceId(),
-                })
-                  .then((avatar) =>
-                    setGeneratedCharacterAvatarIfEmpty(character.id, avatar)
-                  )
-                  .catch(() => {
-                    // 保留首字与主题色兜底头像，用户之后可手动生成或上传替换。
+                void (async () => {
+                  const claim = await claimCharacterAvatarAutoGeneration(
+                    character.id
+                  );
+                  if (!claim.claimed || !claim.data) return;
+                  const avatar = await generateCharacterAvatar({
+                    characterName: claim.data.name,
+                    description: claim.data.description,
+                    gameType: game.type,
+                    storySetting: game.setting,
+                    deviceId: getDeviceId(),
                   });
+                  await setGeneratedCharacterAvatarIfEmpty(
+                    claim.data.id,
+                    avatar
+                  );
+                })().catch(() => {
+                  // 保留首字与主题色兜底头像，用户之后可手动生成或上传替换。
+                });
               }
             }
           }
