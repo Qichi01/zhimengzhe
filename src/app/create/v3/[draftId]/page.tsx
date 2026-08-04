@@ -158,12 +158,15 @@ export default function V3WorldConfirmPage({ params }: { params: Promise<{ draft
       }}
     >
       <StarfieldBackground density="sparse" />
-      <header className="relative z-10 border-b border-[#c8aaff]/10 px-5 py-4 sm:px-8">
+      <header
+        className="relative z-10 border-b border-[#c8aaff]/10 px-5 pb-4 sm:px-8 sm:py-4"
+        style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}
+      >
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
           <button
             type="button"
             onClick={() => void handleBack()}
-            className="text-sm text-[#d5b8f5]/55 transition-opacity hover:opacity-80"
+            className="-ml-3 min-h-11 touch-manipulation rounded-full px-3 text-sm text-[#d5b8f5]/55 transition-opacity hover:bg-white/5 hover:opacity-80"
           >
             ← 返回修改
           </button>
@@ -173,7 +176,10 @@ export default function V3WorldConfirmPage({ params }: { params: Promise<{ draft
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto max-w-5xl px-5 py-8 sm:px-8 sm:py-10">
+      <main
+        className="relative z-10 mx-auto max-w-5xl px-5 pt-8 sm:px-8 sm:py-10"
+        style={{ paddingBottom: "max(2rem, calc(env(safe-area-inset-bottom) + 1rem))" }}
+      >
         <div className="mb-8 max-w-2xl">
           <p className="mb-2 text-xs tracking-[0.2em] text-[#c8aaff]/70">WORLD DEFINITION</p>
           <h1 className="mb-3 text-3xl font-semibold text-[#f0e4fa] sm:text-4xl">
@@ -221,7 +227,7 @@ export default function V3WorldConfirmPage({ params }: { params: Promise<{ draft
                         <button
                           type="button"
                           onClick={() => removeCharacter(character.id)}
-                          className="text-xs text-[#d5b8f5]/35 hover:text-[#ff9ca8]"
+                          className="-mr-3 min-h-11 touch-manipulation rounded-full px-3 text-xs text-[#d5b8f5]/35 hover:bg-white/5 hover:text-[#ff9ca8]"
                         >
                           移除
                         </button>
@@ -252,7 +258,7 @@ export default function V3WorldConfirmPage({ params }: { params: Promise<{ draft
                 type="button"
                 onClick={addCharacter}
                 disabled={draft.characters.length >= 10}
-                className="mt-3 w-full rounded-xl border border-dashed border-[#c8aaff]/20 py-3 text-sm text-[#c8aaff]/75 transition-colors hover:bg-[#c8aaff]/5 disabled:opacity-40"
+                className="mt-3 min-h-11 w-full touch-manipulation rounded-xl border border-dashed border-[#c8aaff]/20 py-3 text-sm text-[#c8aaff]/75 transition-colors hover:bg-[#c8aaff]/5 disabled:opacity-40"
               >
                 + 添加主要人物
               </button>
@@ -269,7 +275,7 @@ export default function V3WorldConfirmPage({ params }: { params: Promise<{ draft
                       type="button"
                       key={option.id}
                       onClick={() => handleGenreChange(option.id)}
-                      className="w-full rounded-2xl p-4 text-left transition-all"
+                      className="min-h-11 w-full touch-manipulation rounded-2xl p-4 text-left transition-all"
                       style={{
                         border: selected
                           ? `1px solid ${option.accent}70`
@@ -297,7 +303,7 @@ export default function V3WorldConfirmPage({ params }: { params: Promise<{ draft
                 {genrePack?.modules.map((module) => (
                   <label
                     key={module.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-xl border border-[#c8aaff]/10 px-3 py-2.5 text-xs text-[#d5b8f5]/70"
+                    className="flex min-h-11 cursor-pointer touch-manipulation items-center gap-2 rounded-xl border border-[#c8aaff]/10 px-3 py-2.5 text-xs text-[#d5b8f5]/70"
                   >
                     <input
                       type="checkbox"
@@ -338,7 +344,7 @@ export default function V3WorldConfirmPage({ params }: { params: Promise<{ draft
           <button
             type="button"
             onClick={() => void handleBack()}
-            className="rounded-full px-6 py-3 text-sm text-[#d5b8f5]/55 hover:bg-white/5"
+            className="min-h-11 touch-manipulation rounded-full px-6 py-3 text-sm text-[#d5b8f5]/55 hover:bg-white/5"
           >
             返回修改内容
           </button>
@@ -346,7 +352,7 @@ export default function V3WorldConfirmPage({ params }: { params: Promise<{ draft
             type="button"
             onClick={() => void handleConfirm()}
             disabled={saving}
-            className="rounded-full px-8 py-3 text-sm font-medium text-[#171423] transition-transform hover:scale-[1.02] disabled:opacity-50"
+            className="min-h-11 touch-manipulation rounded-full px-8 py-3 text-sm font-medium text-[#171423] transition-transform hover:scale-[1.02] disabled:opacity-50"
             style={{
               background: `linear-gradient(135deg, ${accent}, #c8aaff)`,
               boxShadow: `0 8px 30px ${accent}25`,

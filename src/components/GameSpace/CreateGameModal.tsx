@@ -150,11 +150,16 @@ export default function CreateGameModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(20,17,30,0.84)", backdropFilter: "blur(6px)" }}
+      style={{
+        background: "rgba(20,17,30,0.84)",
+        backdropFilter: "blur(6px)",
+        paddingTop: "max(1rem, env(safe-area-inset-top))",
+        paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+      }}
       onClick={onClose}
     >
       <div
-        className="max-h-[calc(100dvh-2rem)] w-full max-w-xl overflow-y-auto rounded-3xl p-6 sm:p-7"
+        className="max-h-full w-full max-w-xl overflow-y-auto overscroll-contain rounded-3xl p-6 sm:p-7"
         style={{
           background:
             "linear-gradient(160deg, rgba(42,38,64,0.98) 0%, rgba(30,27,46,0.98) 100%)",
@@ -176,7 +181,7 @@ export default function CreateGameModal({
             type="button"
             onClick={onClose}
             aria-label="关闭"
-            className="rounded-full p-2 transition-colors hover:bg-white/10"
+            className="flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-full transition-colors hover:bg-white/10"
             style={{ color: "rgba(213,184,245,0.6)" }}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -189,7 +194,7 @@ export default function CreateGameModal({
           <button
             type="button"
             onClick={() => setExperience("v3")}
-            className="rounded-xl px-3 py-2.5 text-sm transition-all"
+            className="min-h-11 touch-manipulation rounded-xl px-3 py-2.5 text-sm transition-all"
             style={{
               background: experience === "v3" ? "rgba(200,170,255,0.16)" : "transparent",
               color: experience === "v3" ? "#e8d5f5" : "rgba(213,184,245,0.5)",
@@ -200,7 +205,7 @@ export default function CreateGameModal({
           <button
             type="button"
             onClick={() => setExperience("v2")}
-            className="rounded-xl px-3 py-2.5 text-sm transition-all"
+            className="min-h-11 touch-manipulation rounded-xl px-3 py-2.5 text-sm transition-all"
             style={{
               background: experience === "v2" ? "rgba(200,170,255,0.16)" : "transparent",
               color: experience === "v2" ? "#e8d5f5" : "rgba(213,184,245,0.5)",
@@ -231,7 +236,7 @@ export default function CreateGameModal({
                       setType(item.value as GameType);
                     }
                   }}
-                  className="rounded-xl px-2 py-3 text-center transition-all"
+                  className="min-h-11 touch-manipulation rounded-xl px-2 py-3 text-center transition-all"
                   style={{
                     background: selected ? `${item.color}20` : "rgba(200,170,255,0.05)",
                     border: selected
@@ -284,7 +289,7 @@ export default function CreateGameModal({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isReadingFile}
-                  className="rounded-full border px-3 py-1.5 text-xs transition-colors hover:bg-white/10 disabled:opacity-50"
+                  className="min-h-11 touch-manipulation rounded-full border px-3 py-2 text-xs transition-colors hover:bg-white/10 disabled:opacity-50"
                   style={{ borderColor: "rgba(200,170,255,0.25)", color: "#c8aaff" }}
                 >
                   {isReadingFile ? "正在读取…" : "导入 TXT / Markdown"}
@@ -301,7 +306,7 @@ export default function CreateGameModal({
                   setSourceFileName(undefined);
                   setSourceFormat("manual");
                 }}
-                className="ml-3 shrink-0 opacity-70 hover:opacity-100"
+                className="ml-3 min-h-11 shrink-0 touch-manipulation px-1 opacity-70 hover:opacity-100"
               >
                 改为手动输入
               </button>
@@ -317,7 +322,6 @@ export default function CreateGameModal({
             placeholder={experience === "v3" ? "粘贴小说片段、人物设定、世界观，或导入本地文件…" : "例如：你是一名失忆的公主，在梦中寻找记忆…"}
             className="w-full resize-none rounded-xl px-4 py-3 text-base leading-relaxed outline-none"
             style={{ color: "#e8d5f5", background: "rgba(200,170,255,0.05)", border: "1px solid rgba(200,170,255,0.15)", fontSize: 16 }}
-            autoFocus
           />
           {experience === "v3" && (
             <p className="mt-2 text-[11px] leading-4" style={{ color: fileError ? "#ff9ca8" : "rgba(213,184,245,0.4)" }}>
@@ -330,7 +334,7 @@ export default function CreateGameModal({
           type="button"
           onClick={() => void handleSubmit()}
           disabled={!setting.trim() || isSubmitting || isReadingFile}
-          className="w-full rounded-full py-3.5 text-base font-medium tracking-wider transition-all active:scale-95 disabled:opacity-40 hover:scale-[1.02]"
+          className="min-h-11 w-full touch-manipulation rounded-full py-3.5 text-base font-medium tracking-wider transition-all active:scale-95 disabled:opacity-40 hover:scale-[1.02]"
           style={{
             background: `linear-gradient(135deg, ${accentColor} 0%, #b08fe8 100%)`,
             color: "#1e1b2e",
