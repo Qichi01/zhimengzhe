@@ -20,7 +20,7 @@ import type {
 } from "@/types";
 
 const DB_NAME = "zhimengzhe-local";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 /** 获取或生成设备 ID（用于本地数据隔离） */
 export function getDeviceId(): string {
@@ -64,6 +64,8 @@ export function openLocalDb(): Promise<IDBDatabase> {
         "narrative_event_failures",
         "module_states",
         "assets",
+        "story_sources",
+        "world_drafts",
       ].forEach((name) => {
         if (!db.objectStoreNames.contains(name)) {
           db.createObjectStore(name, { keyPath: "id" });
@@ -197,6 +199,9 @@ export async function createGame(
       type,
       setting,
       cover_color: coverColor,
+      experience_version: "v2",
+      genre_pack_id: null,
+      world_definition_id: null,
       status: "active",
       last_played_at: now,
       created_at: now,
@@ -238,7 +243,10 @@ export async function deleteGame(
  * 清空指定游戏的所有进度数据（保留游戏记录本身）
  * 用于「新的开始」时重置剧情进度
  */
-export async function clearGameData(gameId: string): Promise<void> {
+export async function clearGameData(
+  gameId: string,
+  preserveWorldDefinition = false
+): Promise<void> {
   const chapters = await getChapters(gameId);
   for (const c of chapters.data ?? []) {
     await deleteRecord("chapters", c.id);
@@ -251,9 +259,11 @@ export async function clearGameData(gameId: string): Promise<void> {
   for (const s of saves.data ?? []) {
     await deleteRecord("saves", s.id);
   }
-  const characters = await getCharacters(gameId);
-  for (const c of characters.data ?? []) {
-    await deleteRecord("characters", c.id);
+  if (!preserveWorldDefinition) {
+    const characters = await getCharacters(gameId);
+    for (const c of characters.data ?? []) {
+      await deleteRecord("characters", c.id);
+    }
   }
   const relationships = await getRelationships(gameId);
   for (const r of relationships.data ?? []) {
@@ -267,14 +277,16 @@ export async function clearGameData(gameId: string): Promise<void> {
   for (const m of maps.data ?? []) {
     await deleteRecord("maps", m.id);
   }
-  await deleteRecord("world_definitions", gameId);
+  if (!preserveWorldDefinition) {
+    await deleteRecord("world_definitions", gameId);
+  }
   await deleteRecord("world_states", gameId);
   for (const storeName of [
     "narrative_frames",
     "narrative_events",
     "narrative_event_failures",
     "module_states",
-    "assets",
+    ...(preserveWorldDefinition ? [] : ["assets", "story_sources"]),
   ]) {
     const records = await getAll<{
       id: string;
@@ -285,6 +297,12 @@ export async function clearGameData(gameId: string): Promise<void> {
       if (record.gameId === gameId || record.game_id === gameId) {
         await deleteRecord(storeName, record.id);
       }
+    }
+  }
+  const drafts = await getAll<{ id: string; gameId?: string }>("world_drafts");
+  for (const draft of drafts) {
+    if (draft.gameId === gameId) {
+      await deleteRecord("world_drafts", draft.id);
     }
   }
 }
@@ -601,16 +619,37 @@ export async function claimCharacterAvatarAutoGeneration(
   error: string | null;
 }> {
   try {
-    const character = await getOne<Character>("characters", characterId);
-    if (!character) {
-      return { data: null, claimed: false, error: "角色不存在" };
-    }
-    if (character.avatar || character.avatar_auto_attempted_at) {
-      return { data: character, claimed: false, error: null };
-    }
-    character.avatar_auto_attempted_at = new Date().toISOString();
-    await putRecord("characters", character);
-    return { data: character, claimed: true, error: null };
+    const db = await openDb();
+    return await new Promise<{
+      data: Character | null;
+      claimed: boolean;
+      error: string | null;
+    }>((resolve, reject) => {
+      const tx = db.transaction("characters", "readwrite");
+      const store = tx.objectStore("characters");
+      const request = store.get(characterId);
+      let result: {
+        data: Character | null;
+        claimed: boolean;
+        error: string | null;
+      } = { data: null, claimed: false, error: "角色不存在" };
+
+      request.onsuccess = () => {
+        const character = (request.result as Character | undefined) ?? null;
+        if (!character) return;
+        if (character.avatar || character.avatar_auto_attempted_at) {
+          result = { data: character, claimed: false, error: null };
+          return;
+        }
+        character.avatar_auto_attempted_at = new Date().toISOString();
+        store.put(character);
+        result = { data: character, claimed: true, error: null };
+      };
+      request.onerror = () => reject(request.error);
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error("头像生成任务领取已取消"));
+    });
   } catch (e) {
     return { data: null, claimed: false, error: String(e) };
   }

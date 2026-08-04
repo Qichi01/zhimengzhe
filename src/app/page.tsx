@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import StarfieldBackground from "@/components/StarfieldBackground";
 import GameCard from "@/components/GameSpace/GameCard";
 import CreateGameModal from "@/components/GameSpace/CreateGameModal";
+import type { CreateGameRequest } from "@/components/GameSpace/CreateGameModal";
 import { useAuthStore } from "@/stores/authStore";
 import {
   getGames,
@@ -13,7 +14,8 @@ import {
   deleteGame,
 } from "@/lib/localDb";
 import { track } from "@/lib/analytics";
-import type { Game, GameType } from "@/types";
+import { createWorldCreationDraft } from "@/lib/narrative";
+import type { Game } from "@/types";
 
 export default function Home() {
   const router = useRouter();
@@ -44,15 +46,34 @@ export default function Home() {
     loadGames();
   }, [loadGames]);
 
-  const handleCreate = async (title: string, type: GameType, setting: string) => {
-    const { data, error } = await createGame("local", title, type, setting);
-    if (error) {
-      alert(`创建失败：${error}`);
-      return;
-    }
-    if (data) {
-      track("create_game", { game_type: type });
-      router.push(`/game/${data.id}`);
+  const handleCreate = async (request: CreateGameRequest) => {
+    try {
+      if (request.experience === "v3") {
+        const draft = await createWorldCreationDraft(request);
+        track("create_game", {
+          game_type: request.primaryGenre,
+          experience_version: "v3",
+        });
+        router.push(`/create/v3/${draft.id}`);
+        return;
+      }
+
+      const { data, error } = await createGame(
+        "local",
+        request.title,
+        request.type,
+        request.setting
+      );
+      if (error) throw new Error(error);
+      if (data) {
+        track("create_game", {
+          game_type: request.type,
+          experience_version: "v2",
+        });
+        router.push(`/game/${data.id}`);
+      }
+    } catch (cause) {
+      alert(`创建失败：${cause instanceof Error ? cause.message : String(cause)}`);
     }
   };
 

@@ -80,6 +80,18 @@ export default function GameCard({ game, onDelete }: GameCardProps) {
           >
             {TYPE_LABELS[game.type]}
           </span>
+          {game.experience_version === "v3" && (
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+              style={{
+                color: "#9fe8c4",
+                background: "rgba(113,245,194,0.08)",
+                border: "1px solid rgba(113,245,194,0.22)",
+              }}
+            >
+              V3 沉浸
+            </span>
+          )}
           <span
             className="text-xs"
             style={{ color: "rgba(213,184,245,0.5)" }}

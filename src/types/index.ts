@@ -2,6 +2,8 @@
 // 织梦者 V2.1 类型定义
 // ============================================================
 
+import type { NarrativeGenreId } from "./v3";
+
 // -------------------- 基础类型（V1 保留） --------------------
 
 // 游戏场景
@@ -85,6 +87,9 @@ export interface Game {
   type: GameType;
   setting: string;
   cover_color: string;
+  experience_version?: "v2" | "v3";
+  genre_pack_id?: NarrativeGenreId | null;
+  world_definition_id?: string | null;
   status: GameStatus;
   last_played_at: string | null;
   created_at: string;

@@ -154,7 +154,7 @@ export default function GameMenuPage({ params }: { params: Promise<{ id: string 
       if (!confirm("开始新游戏将清空当前存档和进度，确定吗？")) return;
     }
     // 清空旧进度数据（场景、章节、存档、角色、关系、线索、地图）
-    await clearGameData(id);
+    await clearGameData(id, game.experience_version === "v3");
     track("start_journey", { action: "new" });
     router.push(`/play/${id}`);
   };
@@ -230,13 +230,15 @@ export default function GameMenuPage({ params }: { params: Promise<{ id: string 
       show: scenes.length > 0,
     },
     {
-      label: "人物关系图",
+      label: game.experience_version === "v3" ? "人物档案" : "人物关系图",
       icon: "⚛",
       onClick: () => {
         track("view_relationship", { character_count: characters.length });
         setShowRelationships(true);
       },
-      show: game.type === "otome" && characters.length > 0,
+      show:
+        characters.length > 0 &&
+        (game.type === "otome" || game.experience_version === "v3"),
     },
     {
       label: "线索板",
@@ -357,6 +359,7 @@ export default function GameMenuPage({ params }: { params: Promise<{ id: string 
           protagonistName="主角"
           gameType={game.type}
           storySetting={game.setting}
+          title={game.experience_version === "v3" ? "人物档案" : "人物关系图"}
           onCharacterUpdated={(updatedCharacter) => {
             setCharacters((current) =>
               current.map((character) =>

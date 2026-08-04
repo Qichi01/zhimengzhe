@@ -199,6 +199,30 @@ body {
   border-radius: 4px;
 }
 
+/* ===== V3 世界档案表单 ===== */
+.world-input {
+  width: 100%;
+  border: 1px solid rgba(200, 170, 255, 0.14);
+  border-radius: 0.75rem;
+  background: rgba(200, 170, 255, 0.045);
+  padding: 0.75rem 0.875rem;
+  color: #eee2f8;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.world-input::placeholder {
+  color: rgba(213, 184, 245, 0.3);
+}
+
+.world-input:focus {
+  border-color: rgba(200, 170, 255, 0.5);
+  background: rgba(200, 170, 255, 0.07);
+  box-shadow: 0 0 0 3px rgba(200, 170, 255, 0.08);
+}
+
 /* ===== Toast 提示动画 ===== */
 @keyframes toastSlide {
   from {

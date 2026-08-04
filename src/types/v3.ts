@@ -37,6 +37,40 @@ export type NarrativeGenreId =
   | "mystery"
   | "general_fantasy";
 
+export type StorySourceFormat = "manual" | "txt" | "markdown";
+
+export interface WorldCreationCharacterDraft {
+  id: string;
+  name: string;
+  role: "protagonist" | "major";
+  description: string;
+}
+
+export interface WorldCreationDraft {
+  id: string;
+  title: string;
+  primaryGenre: NarrativeGenreId;
+  sourceFormat: StorySourceFormat;
+  sourceFileName?: string;
+  sourceText: string;
+  summary: string;
+  characters: WorldCreationCharacterDraft[];
+  enabledModules: NarrativeModuleId[];
+  artStyle: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StorySource {
+  id: string;
+  gameId: string;
+  format: StorySourceFormat;
+  fileName?: string;
+  content: string;
+  characterCount: number;
+  createdAt: string;
+}
+
 interface NarrativeEventBase<
   TType extends NarrativeEventType,
   TPayload

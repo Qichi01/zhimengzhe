@@ -13,6 +13,7 @@ interface RelationshipGraphProps {
   gameType: GameType;
   storySetting: string;
   onCharacterUpdated: (character: Character) => void;
+  title?: string;
   onClose: () => void;
 }
 
@@ -57,6 +58,7 @@ export default function RelationshipGraph({
   gameType,
   storySetting,
   onCharacterUpdated,
+  title = "人物关系图",
   onClose,
 }: RelationshipGraphProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -172,7 +174,7 @@ export default function RelationshipGraph({
           className="text-lg font-semibold tracking-wide"
           style={{ color: "#e8d5f5" }}
         >
-          ⚛ 人物关系图
+          ⚛ {title}
         </h2>
         <button
           onClick={onClose}
