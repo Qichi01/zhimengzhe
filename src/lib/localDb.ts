@@ -20,7 +20,7 @@ import type {
 } from "@/types";
 
 const DB_NAME = "zhimengzhe-local";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 /** 获取或生成设备 ID（用于本地数据隔离） */
 export function getDeviceId(): string {
@@ -34,7 +34,7 @@ export function getDeviceId(): string {
 }
 
 /** 打开 IndexedDB */
-function openDb(): Promise<IDBDatabase> {
+export function openLocalDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof window === "undefined" || typeof indexedDB === "undefined") {
       reject(new Error("IndexedDB not available"));
@@ -57,6 +57,13 @@ function openDb(): Promise<IDBDatabase> {
         "relationships",
         "clues",
         "maps",
+        "world_definitions",
+        "world_states",
+        "narrative_frames",
+        "narrative_events",
+        "narrative_event_failures",
+        "module_states",
+        "assets",
       ].forEach((name) => {
         if (!db.objectStoreNames.contains(name)) {
           db.createObjectStore(name, { keyPath: "id" });
@@ -65,6 +72,8 @@ function openDb(): Promise<IDBDatabase> {
     };
   });
 }
+
+const openDb = openLocalDb;
 
 /** 通用：获取单个记录 */
 async function getOne<T>(
@@ -257,6 +266,26 @@ export async function clearGameData(gameId: string): Promise<void> {
   const maps = await getMaps(gameId);
   for (const m of maps.data ?? []) {
     await deleteRecord("maps", m.id);
+  }
+  await deleteRecord("world_definitions", gameId);
+  await deleteRecord("world_states", gameId);
+  for (const storeName of [
+    "narrative_frames",
+    "narrative_events",
+    "narrative_event_failures",
+    "module_states",
+    "assets",
+  ]) {
+    const records = await getAll<{
+      id: string;
+      gameId?: string;
+      game_id?: string;
+    }>(storeName);
+    for (const record of records) {
+      if (record.gameId === gameId || record.game_id === gameId) {
+        await deleteRecord(storeName, record.id);
+      }
+    }
   }
 }
 

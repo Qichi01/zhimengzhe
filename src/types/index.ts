@@ -247,3 +247,5 @@ export interface ContextConfig {
   maxRecentScenes: number;      // 当前章节保留的最近对话轮数
   chapterSummaryMaxLen: number; // 章节摘要最大字数
 }
+
+export * from "./v3";
