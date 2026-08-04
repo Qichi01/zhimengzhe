@@ -2,12 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import Image from "next/image";
 import { useUserStore } from "@/stores/userStore";
 import { themes } from "@/lib/themes";
-import { parseAIResponse } from "@/lib/parser";
+import { parseAIResponse, stripInternalMetadata } from "@/lib/parser";
 import { buildSystemPrompt, buildInitialUserMessage, buildChoiceMessage } from "@/lib/prompts";
 import { buildContext, shouldCompress, getScenesToCompress, compressScenes } from "@/lib/contextBuilder";
 import { track } from "@/lib/analytics";
+import {
+  decideIllustration,
+  generateSceneIllustration,
+} from "@/lib/illustrations";
+import { generateCharacterAvatar } from "@/lib/avatarAssets";
 import TypewriterText from "./TypewriterText";
 import OptionButtons from "./OptionButtons";
 import {
@@ -24,6 +30,8 @@ import {
   getDeviceId,
   getSaves,
   deleteSave,
+  updateSceneIllustration,
+  setGeneratedCharacterAvatarIfEmpty,
 } from "@/lib/localDb";
 import SaveList from "./GameMenu/SaveList";
 import type {
@@ -35,6 +43,7 @@ import type {
   Option,
   Theme,
   TypewriterSpeed,
+  SceneIllustration,
 } from "@/types";
 
 interface StoryReaderProps {
@@ -55,6 +64,8 @@ interface DisplayScene {
   options: Option[];
   isEnding: boolean;
   chapterTitle?: string;
+  illustration?: SceneIllustration | null;
+  isIllustrationLoading?: boolean;
 }
 
 /**
@@ -78,8 +89,10 @@ export default function StoryReader({
   const modelId = useUserStore((s) => s.modelId);
   const themeId = useUserStore((s) => s.themeId);
   const typewriterSpeed = useUserStore((s) => s.typewriterSpeed);
+  const illustrationsEnabled = useUserStore((s) => s.illustrationsEnabled);
   const setThemeId = useUserStore((s) => s.setThemeId);
   const setTypewriterSpeed = useUserStore((s) => s.setTypewriterSpeed);
+  const setIllustrationsEnabled = useUserStore((s) => s.setIllustrationsEnabled);
 
   const theme: Theme = themes[themeId] ?? themes["dream-light"];
 
@@ -88,9 +101,10 @@ export default function StoryReader({
   const [scenes, setScenes] = useState<DisplayScene[]>(() =>
     initialScenes.map((s) => ({
       id: s.id,
-      content: s.content,
+      content: stripInternalMetadata(s.content),
       options: s.options ?? [],
       isEnding: s.is_ending,
+      illustration: s.illustration ?? null,
     }))
   );
 
@@ -122,6 +136,12 @@ export default function StoryReader({
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const hasStartedRef = useRef(false);
+  const lastIllustrationRequestIndexRef = useRef(
+    initialScenes.reduce(
+      (latest, scene) => scene.illustration ? Math.max(latest, scene.order_index) : latest,
+      Number.NEGATIVE_INFINITY
+    )
+  );
 
   const latestScene: DisplayScene | undefined = scenes[scenes.length - 1];
   const isEnding = Boolean(latestScene?.isEnding);
@@ -250,6 +270,35 @@ export default function StoryReader({
         // 解析 AI 回复
         const parsed = parseAIResponse(full);
 
+        const orderIndex = await getNextSceneIndex(gameId);
+        const isNewChapter = Boolean(
+          parsed.chapterMarker &&
+            !chapters.some(
+              (chapter) => chapter.chapter_number === parsed.chapterMarker!.number
+            )
+        );
+        const illustrationDecision = decideIllustration({
+          enabled: illustrationsEnabled,
+          orderIndex,
+          isNewChapter,
+          parsed,
+          existingScenes: rawScenes,
+          lastRequestedIndex: lastIllustrationRequestIndexRef.current,
+        });
+        if (illustrationDecision.shouldGenerate) {
+          lastIllustrationRequestIndexRef.current = orderIndex;
+        }
+        const illustrationPromise =
+          illustrationDecision.shouldGenerate && illustrationDecision.reason
+            ? generateSceneIllustration({
+                gameType: game.type,
+                storySetting: game.setting,
+                sceneContent: parsed.content,
+                reason: illustrationDecision.reason,
+                deviceId: getDeviceId(),
+              })
+            : null;
+
         // 处理章节标记
         let chapterTitle: string | undefined;
         if (parsed.chapterMarker) {
@@ -309,7 +358,6 @@ export default function StoryReader({
         }
 
         // 写入场景到 Supabase
-        const orderIndex = await getNextSceneIndex(gameId);
         const currentChapter = currentChapterRef.current;
         const { data: sceneRecord } = await createScene({
           chapter_id: currentChapter?.id ?? "",
@@ -344,8 +392,41 @@ export default function StoryReader({
           options: parsed.options,
           isEnding: parsed.isEnding,
           chapterTitle,
+          illustration: null,
+          isIllustrationLoading: Boolean(illustrationPromise),
         };
         setScenes((prev) => [...prev, displayScene]);
+
+        // 配图与章节/关系等后处理并行。失败时只移除占位，不中断正文。
+        if (illustrationPromise) {
+          void illustrationPromise
+            .then(async (illustration) => {
+              await updateSceneIllustration(newRawScene.id, illustration);
+              setRawScenes((prev) =>
+                prev.map((scene) =>
+                  scene.id === newRawScene.id
+                    ? { ...scene, illustration }
+                    : scene
+                )
+              );
+              setScenes((prev) =>
+                prev.map((scene) =>
+                  scene.id === newRawScene.id
+                    ? { ...scene, illustration, isIllustrationLoading: false }
+                    : scene
+                )
+              );
+            })
+            .catch(() => {
+              setScenes((prev) =>
+                prev.map((scene) =>
+                  scene.id === newRawScene.id
+                    ? { ...scene, isIllustrationLoading: false }
+                    : scene
+                )
+              );
+            });
+        }
 
         // 更新消息历史（追加 assistant 回复）
         setMessages((prev) => [...prev, { role: "assistant", content: full }]);
@@ -397,7 +478,7 @@ export default function StoryReader({
         // 处理关系更新（乙游）
         if (parsed.relationshipUpdates && parsed.relationshipUpdates.length > 0) {
           for (const update of parsed.relationshipUpdates) {
-            const { data: character } = await upsertCharacter({
+            const { data: character, created } = await upsertCharacter({
               game_id: gameId,
               name: update.characterName,
               description: update.description ?? null,
@@ -407,6 +488,22 @@ export default function StoryReader({
             });
             if (character) {
               await upsertRelationship(gameId, character.id, update.relationLabel);
+              if (created && character.role === "major" && !character.avatar) {
+                // 默认头像在后台生成，不阻塞正文、选项或关系更新。
+                void generateCharacterAvatar({
+                  characterName: character.name,
+                  description: character.description,
+                  gameType: game.type,
+                  storySetting: game.setting,
+                  deviceId: getDeviceId(),
+                })
+                  .then((avatar) =>
+                    setGeneratedCharacterAvatarIfEmpty(character.id, avatar)
+                  )
+                  .catch(() => {
+                    // 保留首字与主题色兜底头像，用户之后可手动生成或上传替换。
+                  });
+              }
             }
           }
         }
@@ -443,7 +540,7 @@ export default function StoryReader({
         abortRef.current = null;
       }
     },
-    [apiKey, providerId, modelId, gameId, game.type, chapters, reviewMode, rawScenes, systemPrompt, initialUserMessage]
+    [apiKey, providerId, modelId, gameId, game.type, game.setting, chapters, reviewMode, rawScenes, systemPrompt, initialUserMessage, illustrationsEnabled, showToast]
   );
 
   // ---- 挂载时自动发起第一次请求（新游戏时） ----
@@ -665,6 +762,12 @@ export default function StoryReader({
                   ✦ {scene.chapterTitle}
                 </div>
               )}
+              <SceneIllustrationView
+                illustration={scene.illustration}
+                loading={false}
+                theme={theme}
+                muted
+              />
               <div
                 style={{
                   opacity: 0.4,
@@ -695,6 +798,11 @@ export default function StoryReader({
                   ✦ {latestScene.chapterTitle}
                 </div>
               )}
+              <SceneIllustrationView
+                illustration={latestScene.illustration}
+                loading={Boolean(latestScene.isIllustrationLoading)}
+                theme={theme}
+              />
               <div
                 style={{
                   lineHeight: 1.95,
@@ -930,6 +1038,17 @@ export default function StoryReader({
                   ))}
                 </div>
               </div>
+
+              <div style={{ marginTop: "14px" }}>
+                <div style={settingLabelStyle(theme)}>AI 配图</div>
+                <button
+                  type="button"
+                  onClick={() => setIllustrationsEnabled(!illustrationsEnabled)}
+                  style={chipStyle(theme, illustrationsEnabled)}
+                >
+                  {illustrationsEnabled ? "关键场景配图已开启" : "已关闭"}
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -975,6 +1094,67 @@ export default function StoryReader({
           }}
         >
           {toast.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SceneIllustrationView({
+  illustration,
+  loading,
+  theme,
+  muted = false,
+}: {
+  illustration?: SceneIllustration | null;
+  loading: boolean;
+  theme: Theme;
+  muted?: boolean;
+}) {
+  if (!illustration && !loading) return null;
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        aspectRatio: "16 / 9",
+        marginBottom: "18px",
+        borderRadius: theme.borderRadius,
+        overflow: "hidden",
+        border: `1px solid ${theme.optionBorder}`,
+        background: theme.optionBg,
+        boxShadow: muted ? "none" : `0 14px 36px ${theme.glowColor}`,
+        opacity: muted ? 0.42 : 1,
+      }}
+    >
+      {illustration ? (
+        <Image
+          src={illustration.dataUrl}
+          alt={illustration.alt}
+          width={1280}
+          height={720}
+          unoptimized
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      ) : (
+        <div
+          className="illustration-loading"
+          aria-live="polite"
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: theme.textSecondary,
+            fontSize: "14px",
+            fontStyle: "italic",
+            background: `linear-gradient(110deg, ${theme.optionBg} 25%, ${theme.glowColor} 45%, ${theme.optionBg} 65%)`,
+            backgroundSize: "220% 100%",
+            animation: "illustrationShimmer 1.8s ease-in-out infinite",
+          }}
+        >
+          正在描绘关键场景…
         </div>
       )}
     </div>

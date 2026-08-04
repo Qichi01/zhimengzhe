@@ -15,6 +15,8 @@ import type {
   GameType,
   SaveType,
   CharacterRole,
+  CharacterAvatar,
+  SceneIllustration,
 } from "@/types";
 
 const DB_NAME = "zhimengzhe-local";
@@ -363,6 +365,22 @@ export async function createScene(
   }
 }
 
+/** 将生成完成的插图写回已有场景（IndexedDB 本地优先） */
+export async function updateSceneIllustration(
+  sceneId: string,
+  illustration: SceneIllustration
+): Promise<{ error: string | null }> {
+  try {
+    const scene = await getOne<SceneRecord>("scenes", sceneId);
+    if (!scene) return { error: "场景不存在" };
+    scene.illustration = illustration;
+    await putRecord("scenes", scene);
+    return { error: null };
+  } catch (e) {
+    return { error: String(e) };
+  }
+}
+
 export async function getNextSceneIndex(gameId: string): Promise<number> {
   try {
     const all = await getAll<SceneRecord>("scenes");
@@ -469,7 +487,7 @@ export async function getCharacters(
 
 export async function upsertCharacter(
   character: Omit<Character, "id" | "created_at">
-): Promise<{ data: Character | null; error: string | null }> {
+): Promise<{ data: Character | null; error: string | null; created: boolean }> {
   try {
     const all = await getAll<Character>("characters");
     const existing = all.find(
@@ -477,9 +495,16 @@ export async function upsertCharacter(
     );
     if (existing) {
       existing.description = character.description;
-      existing.role = character.role;
+      // 主角档案不能被模型偶发的同名关系更新降级为普通角色。
+      if (existing.role !== "protagonist") {
+        existing.role = character.role;
+      }
+      // 头像资源独立更新；普通剧情关系更新不能覆盖用户上传的头像。
+      if (!existing.avatar && character.avatar) {
+        existing.avatar = character.avatar;
+      }
       await putRecord("characters", existing);
-      return { data: existing, error: null };
+      return { data: existing, error: null, created: false };
     }
     const record: Character = {
       ...character,
@@ -487,7 +512,49 @@ export async function upsertCharacter(
       created_at: new Date().toISOString(),
     };
     await putRecord("characters", record);
-    return { data: record, error: null };
+    return { data: record, error: null, created: true };
+  } catch (e) {
+    return { data: null, error: String(e), created: false };
+  }
+}
+
+/** 更新人物头像；传入 null 时恢复为首字与主题色兜底头像。 */
+export async function updateCharacterAvatar(
+  characterId: string,
+  avatar: CharacterAvatar | null
+): Promise<{ data: Character | null; error: string | null }> {
+  try {
+    const character = await getOne<Character>("characters", characterId);
+    if (!character) {
+      return { data: null, error: "角色不存在" };
+    }
+    character.avatar = avatar;
+    await putRecord("characters", character);
+    return { data: character, error: null };
+  } catch (e) {
+    return { data: null, error: String(e) };
+  }
+}
+
+/**
+ * 仅在人物仍未设置头像时保存 AI 默认头像。
+ * 防止后台生成完成得较晚，覆盖用户刚刚上传的图片。
+ */
+export async function setGeneratedCharacterAvatarIfEmpty(
+  characterId: string,
+  avatar: CharacterAvatar
+): Promise<{ data: Character | null; error: string | null }> {
+  try {
+    const character = await getOne<Character>("characters", characterId);
+    if (!character) {
+      return { data: null, error: "角色不存在" };
+    }
+    if (character.avatar) {
+      return { data: character, error: null };
+    }
+    character.avatar = avatar;
+    await putRecord("characters", character);
+    return { data: character, error: null };
   } catch (e) {
     return { data: null, error: String(e) };
   }

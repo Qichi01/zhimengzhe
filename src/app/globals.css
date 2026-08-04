@@ -210,3 +210,15 @@ body {
     transform: translateX(-50%) translateY(0);
   }
 }
+
+/* ===== 关键场景配图生成占位 ===== */
+@keyframes illustrationShimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .illustration-loading {
+    animation: none !important;
+  }
+}

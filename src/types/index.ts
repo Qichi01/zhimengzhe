@@ -11,6 +11,15 @@ export interface Scene {
   options: Option[];       // 玩家可选选项
   isEnding: boolean;       // 是否结局
   timestamp: number;
+  illustration?: SceneIllustration | null;
+}
+
+// AI 为关键场景生成的本地插图
+export interface SceneIllustration {
+  dataUrl: string;        // 本地持久化后的 data URL，不依赖第三方临时链接
+  alt: string;
+  model: string;
+  generatedAt: string;
 }
 
 // 选项
@@ -57,6 +66,9 @@ export type ChapterStatus = "in_progress" | "completed";
 // 角色重要度
 export type CharacterRole = "protagonist" | "major" | "minor";
 
+// 人物头像来源：AI 默认生成或用户本地上传
+export type CharacterAvatarSource = "generated" | "uploaded";
+
 // 存档类型
 export type SaveType = "auto" | "manual";
 
@@ -101,6 +113,7 @@ export interface SceneRecord {
   is_ending: boolean;
   order_index: number;
   created_at: string;
+  illustration?: SceneIllustration | null;
 }
 
 // 存档
@@ -114,6 +127,14 @@ export interface Save {
   created_at: string;
 }
 
+// 人物头像资源（压缩后保存在 IndexedDB）
+export interface CharacterAvatar {
+  dataUrl: string;
+  source: CharacterAvatarSource;
+  generatedModel?: string;
+  updatedAt: string;
+}
+
 // 角色
 export interface Character {
   id: string;
@@ -123,6 +144,7 @@ export interface Character {
   role: CharacterRole;
   first_appearance_chapter: number | null;
   avatar_color: string;
+  avatar?: CharacterAvatar | null;
   created_at: string;
 }
 
@@ -199,6 +221,7 @@ export interface ParsedAIResponse {
   };
   relationshipUpdates?: RelationshipUpdate[];  // 关系更新（乙游）
   sceneLayout?: SceneLayoutData;                // 场景布局（悬疑）
+  illustrationSuggested: boolean;               // AI 是否判断为关键视觉场景
 }
 
 // 关系更新指令

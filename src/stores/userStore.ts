@@ -19,6 +19,7 @@ interface UserState {
   modelId: string;             // 模型 ID
   themeId: string;             // 当前主题 ID
   typewriterSpeed: TypewriterSpeed;
+  illustrationsEnabled: boolean; // 是否为关键场景生成 AI 配图
 
   // ---- 会员状态（云端 + 本地双轨） ----
   membershipPlan: MembershipPlan;
@@ -33,6 +34,7 @@ interface UserState {
   setModelId: (id: string) => void;
   setThemeId: (id: string) => void;
   setTypewriterSpeed: (speed: TypewriterSpeed) => void;
+  setIllustrationsEnabled: (enabled: boolean) => void;
 
   // 会员相关
   setPremiumToken: (token: string) => void;
@@ -59,6 +61,7 @@ export const useUserStore = create<UserState>()(
       modelId: "deepseek-chat",
       themeId: "dream-light",
       typewriterSpeed: "medium",
+      illustrationsEnabled: false,
 
       membershipPlan: "free",
       membershipExpiresAt: null,
@@ -71,6 +74,7 @@ export const useUserStore = create<UserState>()(
       setModelId: (id) => set({ modelId: id }),
       setThemeId: (id) => set({ themeId: id }),
       setTypewriterSpeed: (speed) => set({ typewriterSpeed: speed }),
+      setIllustrationsEnabled: (enabled) => set({ illustrationsEnabled: enabled }),
 
       setPremiumToken: (token) => set({ premiumToken: token }),
 
@@ -168,6 +172,7 @@ export const useUserStore = create<UserState>()(
         modelId: state.modelId,
         themeId: state.themeId,
         typewriterSpeed: state.typewriterSpeed,
+        illustrationsEnabled: state.illustrationsEnabled,
         premiumToken: state.premiumToken,
         // 会员状态作为缓存持久化，但登录后会重新同步
         membershipPlan: state.membershipPlan,

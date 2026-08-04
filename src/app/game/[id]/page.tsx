@@ -16,6 +16,7 @@ import {
   getCharacters,
   getRelationships,
   clearGameData,
+  upsertCharacter,
 } from "@/lib/localDb";
 import { track } from "@/lib/analytics";
 import type { Game, Save, Chapter, SceneRecord, Character, Relationship } from "@/types";
@@ -55,7 +56,25 @@ export default function GameMenuPage({ params }: { params: Promise<{ id: string 
       setScenes(sceneData ?? []);
 
       const { data: charData } = await getCharacters(id);
-      setCharacters(charData ?? []);
+      let loadedCharacters = charData ?? [];
+      if (
+        gameData.type === "otome" &&
+        !loadedCharacters.some((character) => character.role === "protagonist")
+      ) {
+        const protagonistResult = await upsertCharacter({
+          game_id: id,
+          name: "主角",
+          description: "玩家在故事中的角色",
+          role: "protagonist",
+          first_appearance_chapter: 1,
+          avatar_color: "#ffd76b",
+        });
+        if (protagonistResult.data) {
+          const protagonist = protagonistResult.data;
+          loadedCharacters = [protagonist, ...loadedCharacters];
+        }
+      }
+      setCharacters(loadedCharacters);
 
       const { data: relData } = await getRelationships(id);
       setRelationships(relData ?? []);
@@ -281,7 +300,16 @@ export default function GameMenuPage({ params }: { params: Promise<{ id: string 
         <RelationshipGraph
           characters={characters}
           relationships={relationships}
-          protagonistName={game.title}
+          protagonistName="主角"
+          gameType={game.type}
+          storySetting={game.setting}
+          onCharacterUpdated={(updatedCharacter) => {
+            setCharacters((current) =>
+              current.map((character) =>
+                character.id === updatedCharacter.id ? updatedCharacter : character
+              )
+            );
+          }}
           onClose={() => setShowRelationships(false)}
         />
       )}

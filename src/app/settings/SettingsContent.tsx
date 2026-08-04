@@ -63,11 +63,13 @@ export default function SettingsContent() {
   const modelId = useUserStore((s) => s.modelId);
   const themeId = useUserStore((s) => s.themeId);
   const typewriterSpeed = useUserStore((s) => s.typewriterSpeed);
+  const illustrationsEnabled = useUserStore((s) => s.illustrationsEnabled);
   const setApiKey = useUserStore((s) => s.setApiKey);
   const setProviderId = useUserStore((s) => s.setProviderId);
   const setModelId = useUserStore((s) => s.setModelId);
   const setThemeId = useUserStore((s) => s.setThemeId);
   const setTypewriterSpeed = useUserStore((s) => s.setTypewriterSpeed);
+  const setIllustrationsEnabled = useUserStore((s) => s.setIllustrationsEnabled);
   const isPremium = useUserStore((s) => s.isPremium);
   const membershipPlan = useUserStore((s) => s.membershipPlan);
   const membershipExpiresAt = useUserStore((s) => s.membershipExpiresAt);
@@ -133,6 +135,7 @@ export default function SettingsContent() {
 
   const themeIdDisplay = mounted ? themeId : "dream-light";
   const speedDisplay = mounted ? typewriterSpeed : "medium";
+  const illustrationsEnabledDisplay = mounted ? illustrationsEnabled : false;
   const premiumActive = safeIsPremium();
 
   const showToast = (msg: string) => {
@@ -701,6 +704,47 @@ export default function SettingsContent() {
                 </button>
               );
             })}
+          </div>
+
+          <div
+            className="my-5"
+            style={{ borderTop: "1px solid rgba(200, 170, 255, 0.1)" }}
+          />
+
+          <div className="flex items-center justify-between gap-5">
+            <div>
+              <p className="text-sm font-medium" style={{ color: "#e8d5f5" }}>
+                关键场景 AI 配图
+              </p>
+              <p className="mt-1 text-xs leading-relaxed" style={{ color: "#8a7aa8" }}>
+                只为开篇、章节转折、重要线索与结局生成插图。默认关闭，正文生成不受影响。
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={illustrationsEnabledDisplay}
+              aria-label="关键场景 AI 配图"
+              onClick={() => setIllustrationsEnabled(!illustrationsEnabledDisplay)}
+              className="relative h-7 w-12 shrink-0 rounded-full transition-colors"
+              style={{
+                background: illustrationsEnabledDisplay
+                  ? "linear-gradient(135deg, #c8aaff 0%, #9d6cf5 100%)"
+                  : "rgba(0, 0, 0, 0.35)",
+                border: illustrationsEnabledDisplay
+                  ? "1px solid #d9c2ff"
+                  : "1px solid rgba(200, 170, 255, 0.22)",
+              }}
+            >
+              <span
+                className="absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full transition-all"
+                style={{
+                  left: illustrationsEnabledDisplay ? "25px" : "3px",
+                  background: illustrationsEnabledDisplay ? "#fff" : "#8a7aa8",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.28)",
+                }}
+              />
+            </button>
           </div>
         </section>
 

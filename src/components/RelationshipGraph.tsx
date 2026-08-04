@@ -1,13 +1,18 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import type { Character, Relationship } from "@/types";
+import CharacterAvatar from "./CharacterAvatar";
+import CharacterAvatarEditor from "./CharacterAvatarEditor";
+import type { Character, GameType, Relationship } from "@/types";
 
 interface RelationshipGraphProps {
   characters: Character[];
   relationships: Relationship[];
   /** 主角名（从游戏设定解析或默认"我"） */
   protagonistName?: string;
+  gameType: GameType;
+  storySetting: string;
+  onCharacterUpdated: (character: Character) => void;
   onClose: () => void;
 }
 
@@ -17,6 +22,7 @@ interface GraphNode {
   description: string | null;
   role: string;
   color: string;
+  avatar?: Character["avatar"];
   x: number;
   y: number;
   isProtagonist: boolean;
@@ -48,28 +54,36 @@ export default function RelationshipGraph({
   characters,
   relationships,
   protagonistName = "主角",
+  gameType,
+  storySetting,
+  onCharacterUpdated,
   onClose,
 }: RelationshipGraphProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  // 主角虚拟节点 ID（固定）
-  const protagonistId = "__protagonist__";
+  const protagonistCharacter = characters.find(
+    (character) => character.role === "protagonist"
+  );
+  const npcCharacters = characters.filter(
+    (character) => character.role !== "protagonist"
+  );
+  const protagonistId = protagonistCharacter?.id ?? "__protagonist__";
 
   // 根据NPC数量动态计算半径，确保节点不会太挤也不会太散
   const radius = useMemo(() => {
-    const count = characters.length;
+    const count = npcCharacters.length;
     if (count <= 2) return 200;
     if (count <= 4) return 210;
     if (count <= 6) return 230;
     return 250;
-  }, [characters.length]);
+  }, [npcCharacters.length]);
 
   // 构建节点（静态位置，不动画）
   const nodes: GraphNode[] = useMemo(() => {
-    const npcCount = characters.length;
+    const npcCount = npcCharacters.length;
     if (npcCount === 0) return [];
 
-    return characters.map((char, i) => {
+    return npcCharacters.map((char, i) => {
       // NPC 均匀环形分布
       const angle = (i / npcCount) * Math.PI * 2 - Math.PI / 2; // 从正上方开始
       return {
@@ -78,20 +92,22 @@ export default function RelationshipGraph({
         description: char.description,
         role: char.role,
         color: char.avatar_color,
+        avatar: char.avatar,
         x: CENTER_X + Math.cos(angle) * radius,
         y: CENTER_Y + Math.sin(angle) * radius,
         isProtagonist: false,
       };
     });
-  }, [characters, radius]);
+  }, [npcCharacters, radius]);
 
   // 主角节点
   const protagonistNode: GraphNode = {
     id: protagonistId,
-    name: protagonistName,
-    description: null,
+    name: protagonistCharacter?.name ?? protagonistName,
+    description: protagonistCharacter?.description ?? null,
     role: "protagonist",
-    color: "#ffd76b",
+    color: protagonistCharacter?.avatar_color ?? "#ffd76b",
+    avatar: protagonistCharacter?.avatar,
     x: CENTER_X,
     y: CENTER_Y,
     isProtagonist: true,
@@ -100,27 +116,27 @@ export default function RelationshipGraph({
   const allNodes = [protagonistNode, ...nodes];
 
   // 构建边 — 所有 NPC 连向主角
-  const edges: GraphEdge[] = useMemo(() => {
-    return relationships.map((rel) => ({
-      source: rel.character_id,
-      target: protagonistId,
-      label: rel.relation_label,
-      previousLabel: rel.previous_label,
-    }));
-  }, [relationships]);
+  const edges: GraphEdge[] = relationships.map((rel) => ({
+    source: rel.character_id,
+    target: protagonistId,
+    label: rel.relation_label,
+    previousLabel: rel.previous_label,
+  }));
 
   // 获取选中节点的完整信息
-  const selectedNodeInfo = useMemo(() => {
+  const selectedNodeInfo = (() => {
     if (!selectedNodeId) return null;
     if (selectedNodeId === protagonistId) {
       return {
-        name: protagonistName,
+        name: protagonistCharacter?.name ?? protagonistName,
         role: "protagonist",
-        description: null,
+        description: protagonistCharacter?.description ?? null,
         relationLabel: null,
         previousLabel: null,
         first_appearance_chapter: null,
-        avatar_color: "#ffd76b",
+        avatar_color: protagonistCharacter?.avatar_color ?? "#ffd76b",
+        avatar: protagonistCharacter?.avatar ?? null,
+        character: protagonistCharacter ?? null,
       };
     }
     const char = characters.find((c) => c.id === selectedNodeId);
@@ -134,8 +150,10 @@ export default function RelationshipGraph({
       previousLabel: rel?.previous_label ?? null,
       first_appearance_chapter: char.first_appearance_chapter,
       avatar_color: char.avatar_color,
+      avatar: char.avatar,
+      character: char,
     };
-  }, [selectedNodeId, characters, relationships, protagonistName]);
+  })();
 
   return (
     <div
@@ -266,6 +284,7 @@ export default function RelationshipGraph({
             {allNodes.map((node) => {
               const isSelected = selectedNodeId === node.id;
               const r = node.isProtagonist ? 32 : 24;
+              const clipId = `avatar-clip-${node.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
               return (
                 <g
@@ -307,8 +326,27 @@ export default function RelationshipGraph({
                     strokeWidth={isSelected ? 2.5 : 1.5}
                     style={{ transition: "all 0.3s ease" }}
                   />
+                  {node.avatar?.dataUrl && (
+                    <>
+                      <defs>
+                        <clipPath id={clipId}>
+                          <circle cx={node.x} cy={node.y} r={r} />
+                        </clipPath>
+                      </defs>
+                      <image
+                        href={node.avatar.dataUrl}
+                        x={node.x - r}
+                        y={node.y - r}
+                        width={r * 2}
+                        height={r * 2}
+                        preserveAspectRatio="xMidYMid slice"
+                        clipPath={`url(#${clipId})`}
+                        pointerEvents="none"
+                      />
+                    </>
+                  )}
                   {/* 节点内文字（主角标记或角色首字） */}
-                  {node.isProtagonist ? (
+                  {node.isProtagonist && !node.avatar?.dataUrl ? (
                     <text
                       x={node.x}
                       y={node.y + 5}
@@ -321,7 +359,7 @@ export default function RelationshipGraph({
                     >
                       主角
                     </text>
-                  ) : (
+                  ) : !node.avatar?.dataUrl ? (
                     <text
                       x={node.x}
                       y={node.y + 5}
@@ -334,7 +372,7 @@ export default function RelationshipGraph({
                     >
                       {node.name.charAt(0)}
                     </text>
-                  )}
+                  ) : null}
                   {/* 角色名（节点下方） */}
                   <text
                     x={node.x}
@@ -367,20 +405,12 @@ export default function RelationshipGraph({
         >
           <div className="flex items-start justify-between mb-3">
             <div className="flex items-center gap-4">
-              <div
-                className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
-                style={{
-                  background: selectedNodeInfo.avatar_color,
-                  boxShadow: `0 0 16px ${selectedNodeInfo.avatar_color}40`,
-                }}
-              >
-                <span
-                  className="text-lg font-bold"
-                  style={{ color: "#fff" }}
-                >
-                  {selectedNodeInfo.name.charAt(0)}
-                </span>
-              </div>
+              <CharacterAvatar
+                name={selectedNodeInfo.name}
+                color={selectedNodeInfo.avatar_color}
+                avatar={selectedNodeInfo.avatar}
+                size={48}
+              />
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <span
@@ -459,6 +489,21 @@ export default function RelationshipGraph({
             >
               首次出现：第{selectedNodeInfo.first_appearance_chapter}章
             </p>
+          )}
+
+          {selectedNodeInfo.character && (
+            <div
+              className="mt-3 border-t pt-3"
+              style={{ borderColor: "rgba(200,170,255,0.12)" }}
+            >
+              <CharacterAvatarEditor
+                character={selectedNodeInfo.character}
+                gameType={gameType}
+                storySetting={storySetting}
+                onUpdated={onCharacterUpdated}
+                showPreview={false}
+              />
+            </div>
           )}
         </div>
       )}

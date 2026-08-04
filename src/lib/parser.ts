@@ -1,5 +1,26 @@
 import type { Option, ParsedAIResponse, RelationshipUpdate, SceneLayoutData, MapRoom } from "@/types";
 
+const ILLUSTRATION_SUGGESTION_REGEX =
+  /配图建议\s*(?:[\]】）)])?\s*[：:]?\s*(?:[（(]\s*)?(关键|普通|不需要|需要|不生成|生成|是|否)/i;
+
+const ILLUSTRATION_METADATA_LINE_REGEX =
+  /^[ \t]*(?:[-*>#]+\s*)?(?:\*\*|__)?(?:[\[【（(]\s*)?配图建议(?:\s*[\]】）)])?(?:\s*[：:]\s*|\s+)?(?:[（(]\s*)?(?:关键|普通|不需要|需要|不生成|生成|是|否)?(?:\s*[）)])?(?:\s*[\]】])?(?:\*\*|__)?[ \t]*$/gim;
+
+const INLINE_ILLUSTRATION_METADATA_REGEX =
+  /(?:\*\*|__)?(?:[\[【（(]\s*)?配图建议(?:\s*[\]】）)])?\s*[：:]?\s*(?:[（(]\s*)?(?:关键|普通|不需要|需要|不生成|生成|是|否)(?:\s*[）)])?(?:\s*[\]】])?(?:\*\*|__)?/gi;
+
+/**
+ * 清除只供系统使用的配图元数据。
+ * 同时用于解析结果和渲染旧存档，保证模型格式漂移或生图失败时也不会泄漏到正文。
+ */
+export function stripInternalMetadata(text: string): string {
+  return text
+    .replace(ILLUSTRATION_METADATA_LINE_REGEX, "")
+    .replace(INLINE_ILLUSTRATION_METADATA_REGEX, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /**
  * 解析 AI 返回的文本，提取场景描述、选项、章节标记、关系更新等
  */
@@ -20,9 +41,15 @@ export function parseAIResponse(text: string): ParsedAIResponse {
     };
   }
 
+  // 兼容方括号、书名括号、全角冒号和无括号格式。
+  const illustrationMatch = fullText.match(ILLUSTRATION_SUGGESTION_REGEX);
+  const illustrationSuggested = ["关键", "需要", "生成", "是"].includes(
+    illustrationMatch?.[1] ?? ""
+  );
+
   // 提取关系更新（乙游）
   let relationshipUpdates: RelationshipUpdate[] | undefined;
-  const relationRegex = /\[关系更新\]([\s\S]*?)(?=\[场景布局\]|$)/;
+  const relationRegex = /\[关系更新\]([\s\S]*?)(?=\[场景布局\]|(?:\[|【)?配图建议|$)/;
   const relationMatch = fullText.match(relationRegex);
   if (relationMatch) {
     relationshipUpdates = parseRelationshipUpdates(relationMatch[1]);
@@ -37,11 +64,12 @@ export function parseAIResponse(text: string): ParsedAIResponse {
   }
 
   // 移除附加信息，只保留场景描述 + 选项
-  let cleanText = fullText
-    .replace(chapterRegex, "")
-    .replace(relationRegex, "")
-    .replace(layoutRegex, "")
-    .trim();
+  const cleanText = stripInternalMetadata(
+    fullText
+      .replace(chapterRegex, "")
+      .replace(relationRegex, "")
+      .replace(layoutRegex, "")
+  );
 
   // 尝试匹配选项部分
   const optionRegex = /选项[：:]\s*\n([\s\S]*?)$/;
@@ -70,8 +98,17 @@ export function parseAIResponse(text: string): ParsedAIResponse {
     .replace(/【结局】/g, "")
     .replace(/\[结局\]/g, "")
     .trim();
+  content = stripInternalMetadata(content);
 
-  return { content, options, isEnding, chapterMarker, relationshipUpdates, sceneLayout };
+  return {
+    content,
+    options,
+    isEnding,
+    chapterMarker,
+    relationshipUpdates,
+    sceneLayout,
+    illustrationSuggested,
+  };
 }
 
 /** 解析选项 */
