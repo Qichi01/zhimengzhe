@@ -1,4 +1,5 @@
 export * from "./engine";
+export * from "./frameEnvelope";
 export * from "./genrePacks";
 export * from "./runtime";
 export * from "./storage";

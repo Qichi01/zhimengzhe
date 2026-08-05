@@ -9,12 +9,19 @@ const ILLUSTRATION_METADATA_LINE_REGEX =
 const INLINE_ILLUSTRATION_METADATA_REGEX =
   /(?:\*\*|__)?(?:[\[【（(]\s*)?配图建议(?:\s*[\]】）)])?\s*[：:]?\s*(?:[（(]\s*)?(?:关键|普通|不需要|需要|不生成|生成|是|否)(?:\s*[）)])?(?:\s*[\]】])?(?:\*\*|__)?/gi;
 
+const V3_FRAME_BLOCK_REGEX =
+  /\[V3_EVENT_FRAME\]\s*([\s\S]*?)\s*\[\/V3_EVENT_FRAME\]/i;
+
+const V3_FRAME_METADATA_REGEX =
+  /\[V3_EVENT_FRAME\][\s\S]*?(?:\[\/V3_EVENT_FRAME\]|$)/gi;
+
 /**
  * 清除只供系统使用的配图元数据。
  * 同时用于解析结果和渲染旧存档，保证模型格式漂移或生图失败时也不会泄漏到正文。
  */
 export function stripInternalMetadata(text: string): string {
   return text
+    .replace(V3_FRAME_METADATA_REGEX, "")
     .replace(ILLUSTRATION_METADATA_LINE_REGEX, "")
     .replace(INLINE_ILLUSTRATION_METADATA_REGEX, "")
     .replace(/\n{3,}/g, "\n\n")
@@ -26,6 +33,7 @@ export function stripInternalMetadata(text: string): string {
  */
 export function parseAIResponse(text: string): ParsedAIResponse {
   const fullText = text.trim();
+  const narrativeFramePayload = parseV3FramePayload(fullText);
 
   // 检查是否结局
   const isEnding = fullText.includes("【结局】") || fullText.includes("[结局]");
@@ -108,7 +116,25 @@ export function parseAIResponse(text: string): ParsedAIResponse {
     relationshipUpdates,
     sceneLayout,
     illustrationSuggested,
+    narrativeFramePayload,
   };
+}
+
+function parseV3FramePayload(text: string): Record<string, unknown> | undefined {
+  const match = text.match(V3_FRAME_BLOCK_REGEX);
+  if (!match) return undefined;
+  const jsonText = match[1]
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "");
+  try {
+    const parsed: unknown = JSON.parse(jsonText);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** 解析选项 */

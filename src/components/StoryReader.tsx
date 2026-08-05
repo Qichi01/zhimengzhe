@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import Image from "next/image";
 import { useUserStore } from "@/stores/userStore";
@@ -14,8 +14,15 @@ import {
   generateSceneIllustration,
 } from "@/lib/illustrations";
 import { generateCharacterAvatar } from "@/lib/avatarAssets";
+import {
+  composeNarrativeFrameInput,
+  createInitialWorldState,
+  processNarrativeFrame,
+  saveWorldState,
+} from "@/lib/narrative";
 import TypewriterText from "./TypewriterText";
 import OptionButtons from "./OptionButtons";
+import V3ImmersiveShell from "./V3/V3ImmersiveShell";
 import {
   createScene,
   getNextSceneIndex,
@@ -45,6 +52,9 @@ import type {
   Theme,
   TypewriterSpeed,
   SceneIllustration,
+  Character,
+  WorldDefinition,
+  WorldState,
 } from "@/types";
 
 interface StoryReaderProps {
@@ -54,6 +64,9 @@ interface StoryReaderProps {
   initialChapters: Chapter[];
   savePoint: Save | null;
   reviewMode?: boolean;
+  initialWorldDefinition?: WorldDefinition | null;
+  initialWorldState?: WorldState | null;
+  initialCharacters?: Character[];
   onExit?: () => void;
 }
 
@@ -82,6 +95,9 @@ export default function StoryReader({
   initialChapters,
   savePoint,
   reviewMode = false,
+  initialWorldDefinition = null,
+  initialWorldState = null,
+  initialCharacters = [],
   onExit,
 }: StoryReaderProps) {
   // ---- 用户状态 ----
@@ -113,8 +129,29 @@ export default function StoryReader({
   const [rawScenes, setRawScenes] = useState<SceneRecord[]>(initialScenes);
 
   // ---- 消息历史（发给 AI，使用优化的上下文构建） ----
-  const systemPrompt = buildSystemPrompt(game.type);
+  const isV3 =
+    game.experience_version === "v3" &&
+    Boolean(game.genre_pack_id) &&
+    Boolean(initialWorldDefinition);
+  const systemPrompt = useMemo(
+    () =>
+      buildSystemPrompt(
+        game.type,
+        isV3 && game.genre_pack_id && initialWorldDefinition
+          ? {
+              genreId: game.genre_pack_id,
+              enabledModules: initialWorldDefinition.enabledModules,
+              characters: initialWorldDefinition.characters,
+            }
+          : undefined
+      ),
+    [game.type, game.genre_pack_id, initialWorldDefinition, isV3]
+  );
   const initialUserMessage = buildInitialUserMessage(game.setting);
+
+  const [v3WorldState, setV3WorldState] = useState<WorldState | null>(() =>
+    isV3 ? initialWorldState ?? createInitialWorldState(gameId) : null
+  );
 
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
     buildContext({
@@ -197,6 +234,7 @@ export default function StoryReader({
             deviceId: getDeviceId(),
             providerId,
             modelId,
+            experienceVersion: game.experience_version,
           }),
           signal: controller.signal,
         });
@@ -398,6 +436,29 @@ export default function StoryReader({
         };
         setScenes((prev) => [...prev, displayScene]);
 
+        // V3 事件尾包只进入白名单运行时。尾包缺失或损坏时仍提交纯正文帧，
+        // 任何异常都不能阻断正文、选项和旧版存档。
+        if (isV3 && game.genre_pack_id) {
+          try {
+            const frameId = `frame-${gameId}-${orderIndex}`;
+            const result = await processNarrativeFrame({
+              gameId,
+              genreId: game.genre_pack_id,
+              sequence: orderIndex,
+              fallbackFrameId: frameId,
+              rawFrame: composeNarrativeFrameInput({
+                frameId,
+                prose: parsed.content,
+                choices: parsed.options,
+                payload: parsed.narrativeFramePayload,
+              }),
+            });
+            if (result.state) setV3WorldState(result.state);
+          } catch {
+            // 正文已成功生成和保存；沉浸事件失败时静默降级为空状态。
+          }
+        }
+
         // 配图与章节/关系等后处理并行。失败时只移除占位，不中断正文。
         if (illustrationPromise) {
           void illustrationPromise
@@ -547,21 +608,34 @@ export default function StoryReader({
         abortRef.current = null;
       }
     },
-    [apiKey, providerId, modelId, gameId, game.type, game.setting, chapters, reviewMode, rawScenes, systemPrompt, initialUserMessage, illustrationsEnabled, showToast]
+    [apiKey, providerId, modelId, gameId, game.type, game.setting, game.experience_version, game.genre_pack_id, chapters, reviewMode, rawScenes, systemPrompt, initialUserMessage, illustrationsEnabled, showToast, isV3]
   );
+
+  const handleV3StateChange = useCallback(async (state: WorldState) => {
+    setV3WorldState(state);
+    try {
+      await saveWorldState(state);
+    } catch {
+      // 未读清零写入失败时保留当前界面，不阻断阅读。
+    }
+  }, []);
 
   // ---- 挂载时自动发起第一次请求（新游戏时） ----
   useEffect(() => {
-    if (hasStartedRef.current) return;
     if (reviewMode) return;
-    // 新游戏：有初始消息但没有场景
-    if (messages.length > 0 && scenes.length === 0 && !savePoint) {
-      hasStartedRef.current = true;
-      void callAI(messages);
-    }
-    // 从存档继续：有消息且有场景，不需要自动请求
     if (scenes.length > 0) {
       hasStartedRef.current = true;
+      return;
+    }
+    if (hasStartedRef.current) return;
+    // 新游戏：有初始消息但没有场景
+    if (messages.length > 0 && scenes.length === 0 && !savePoint) {
+      const timer = window.setTimeout(() => {
+        if (hasStartedRef.current) return;
+        hasStartedRef.current = true;
+        void callAI(messages);
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
   }, [messages, scenes.length, savePoint, reviewMode, callAI]);
 
@@ -874,6 +948,16 @@ export default function StoryReader({
           )}
         </div>
       </div>
+
+      {isV3 && (
+        <V3ImmersiveShell
+          game={game}
+          definition={initialWorldDefinition}
+          state={v3WorldState}
+          characters={initialCharacters}
+          onStateChange={handleV3StateChange}
+        />
+      )}
 
       {/* ===== 底部操作区 ===== */}
       <div

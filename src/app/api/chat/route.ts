@@ -94,6 +94,7 @@ export async function POST(req: NextRequest) {
       apiKey,
       providerId,
       modelId,
+      experienceVersion,
     } = await req.json();
 
     if (!messages || !Array.isArray(messages)) {
@@ -143,7 +144,7 @@ export async function POST(req: NextRequest) {
       {
         stream: true,
         temperature: 0.8,
-        maxTokens: 800,
+        maxTokens: experienceVersion === "v3" ? 1400 : 800,
       }
     );
 

@@ -228,6 +228,7 @@ export interface ParsedAIResponse {
   relationshipUpdates?: RelationshipUpdate[];  // 关系更新（乙游）
   sceneLayout?: SceneLayoutData;                // 场景布局（悬疑）
   illustrationSuggested: boolean;               // AI 是否判断为关键视觉场景
+  narrativeFramePayload?: Record<string, unknown>; // V3 结构化事件尾包（仅供白名单校验器消费）
 }
 
 // 关系更新指令

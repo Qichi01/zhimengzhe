@@ -25,6 +25,10 @@ export async function getWorldState(
   return getV3Record<WorldState>("world_states", gameId);
 }
 
+export async function saveWorldState(state: WorldState): Promise<void> {
+  await putV3Record("world_states", state);
+}
+
 export async function getNarrativeFrames(
   gameId: string
 ): Promise<NarrativeFrame[]> {

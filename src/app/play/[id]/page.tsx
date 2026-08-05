@@ -3,8 +3,17 @@
 import { useEffect, useState, use } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import StoryReader from "@/components/StoryReader";
-import { getGame, getScenes, getSaves, getChapters } from "@/lib/localDb";
-import type { Game, SceneRecord, Chapter, Save } from "@/types";
+import { getGame, getScenes, getSaves, getChapters, getCharacters } from "@/lib/localDb";
+import { getWorldDefinition, getWorldState } from "@/lib/narrative";
+import type {
+  Game,
+  SceneRecord,
+  Chapter,
+  Save,
+  Character,
+  WorldDefinition,
+  WorldState,
+} from "@/types";
 
 export default function PlayPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -15,6 +24,9 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
   const [scenes, setScenes] = useState<SceneRecord[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [savePoint, setSavePoint] = useState<Save | null>(null);
+  const [worldDefinition, setWorldDefinition] = useState<WorldDefinition | null>(null);
+  const [worldState, setWorldState] = useState<WorldState | null>(null);
+  const [characters, setCharacters] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);
 
   const saveId = searchParams.get("save");
@@ -29,6 +41,17 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
         return;
       }
       setGame(gameData);
+
+      if (gameData.experience_version === "v3") {
+        const [definition, state, characterResult] = await Promise.all([
+          getWorldDefinition(id),
+          getWorldState(id),
+          getCharacters(id),
+        ]);
+        setWorldDefinition(definition);
+        setWorldState(state);
+        setCharacters(characterResult.data ?? []);
+      }
 
       // 加载章节
       const { data: chapterData } = await getChapters(id);
@@ -45,6 +68,9 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
         } else {
           setScenes(sceneData ?? []);
         }
+      } else if (reviewMode) {
+        const { data: sceneData } = await getScenes(id);
+        setScenes(sceneData ?? []);
       } else {
         // 新的开始：不加载历史场景，从空开始
         setScenes([]);
@@ -53,7 +79,7 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
       setLoading(false);
     };
     loadData();
-  }, [id, router, saveId]);
+  }, [id, router, saveId, reviewMode]);
 
   if (loading || !game) {
     return (
@@ -80,6 +106,9 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
       initialChapters={chapters}
       savePoint={savePoint}
       reviewMode={reviewMode}
+      initialWorldDefinition={worldDefinition}
+      initialWorldState={worldState}
+      initialCharacters={characters}
       onExit={() => router.push(`/game/${id}`)}
     />
   );
