@@ -655,6 +655,44 @@ export async function claimCharacterAvatarAutoGeneration(
   }
 }
 
+/**
+ * 自动生成遇到临时服务错误时释放本次领取，允许用户刷新页面后再次自动尝试。
+ * attemptedAt 用于避免较晚失败的旧请求清除更新后的任务状态。
+ */
+export async function releaseCharacterAvatarAutoGeneration(
+  characterId: string,
+  attemptedAt: string | null | undefined
+): Promise<{ error: string | null }> {
+  if (!attemptedAt) return { error: null };
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("characters", "readwrite");
+      const store = tx.objectStore("characters");
+      const request = store.get(characterId);
+
+      request.onsuccess = () => {
+        const character = (request.result as Character | undefined) ?? null;
+        if (
+          character &&
+          !character.avatar &&
+          character.avatar_auto_attempted_at === attemptedAt
+        ) {
+          character.avatar_auto_attempted_at = null;
+          store.put(character);
+        }
+      };
+      request.onerror = () => reject(request.error);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error("头像自动生成任务释放失败"));
+    });
+    return { error: null };
+  } catch (e) {
+    return { error: String(e) };
+  }
+}
+
 export async function getRelationships(
   gameId: string
 ): Promise<{ data: Relationship[] | null; error: string | null }> {

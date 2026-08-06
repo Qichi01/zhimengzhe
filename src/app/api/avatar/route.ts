@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { buildAvatarPrompt, sanitizeVisualReference } from "@/lib/imagePrompts";
+import {
+  fetchGeneratedImage,
+  hasUnsafeGenerationFilter,
+  inspectGeneratedImage,
+} from "@/lib/imageModeration";
 import type { GameType } from "@/types";
 
 export const runtime = "nodejs";
@@ -20,13 +26,14 @@ interface AvatarRequest {
   characterName?: string;
   description?: string | null;
   gameType?: GameType;
-  storySetting?: string;
   deviceId?: string;
 }
 
 interface ImageApiResponse {
   data?: Array<{ url?: string }>;
-  error?: { message?: string };
+  content_filter?: Array<{ role?: string; level?: number }>;
+  contentFilter?: Array<{ role?: string; level?: number }>;
+  error?: { code?: string | number; message?: string };
 }
 
 export async function POST(req: NextRequest) {
@@ -34,7 +41,6 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as AvatarRequest;
     const characterName = cleanText(body.characterName, 80);
     const description = cleanText(body.description, 600);
-    const storySetting = cleanText(body.storySetting, 800);
     const deviceId = cleanIdentifier(body.deviceId);
     const gameType: GameType =
       body.gameType === "otome" || body.gameType === "mystery"
@@ -65,7 +71,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model,
-        prompt: buildAvatarPrompt(gameType, characterName, description, storySetting),
+        prompt: buildAvatarPrompt(gameType, characterName, description),
         size: AVATAR_IMAGE_SIZE,
         quality: model === "glm-image" ? "hd" : "standard",
         user_id: deviceId,
@@ -79,9 +85,27 @@ export async function POST(req: NextRequest) {
       console.error(
         "Avatar API error:",
         generationResponse.status,
-        generationData.error?.message ?? "unknown error"
+        generationData.error?.message ?? "unknown error",
+        generationData.contentFilter ?? []
       );
-      return NextResponse.json({ error: "头像生成服务暂时不可用" }, { status: 502 });
+      const safetyRejected = String(generationData.error?.code ?? "") === "1301";
+      return NextResponse.json(
+        {
+          error: safetyRejected
+            ? "人物介绍中包含暂不支持的图像内容，请调整后重试"
+            : "头像生成服务暂时不可用",
+        },
+        { status: safetyRejected ? 422 : 502 }
+      );
+    }
+    if (hasUnsafeGenerationFilter(generationData.content_filter)) {
+      return NextResponse.json(
+        {
+          error: "生成结果未通过头像安全检查，请重新生成或上传图片",
+          retryable: true,
+        },
+        { status: 422 }
+      );
     }
 
     const imageUrl = generationData.data?.[0]?.url;
@@ -89,10 +113,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "头像服务未返回有效图片" }, { status: 502 });
     }
 
-    const imageResponse = await fetch(imageUrl, {
-      signal: AbortSignal.timeout(12_000),
-      cache: "no-store",
-    });
+    const [imageResponse, inspection] = await Promise.all([
+      fetchGeneratedImage(imageUrl),
+      inspectGeneratedImage(apiKey, imageUrl, {
+        kind: "avatar",
+        characterReference: sanitizeVisualReference(
+          description || "自然亲和的具体角色",
+          500
+        ),
+      }),
+    ]);
+    if (!inspection.valid) {
+      return NextResponse.json(
+        {
+          error:
+            inspection.reason === "unsafe"
+              ? "生成结果未通过头像安全检查，请重新生成或上传图片"
+              : inspection.reason === "off_spec"
+                ? "生成结果不符合单角色半身头像规范，请重新生成"
+                : "头像质量检查暂时不可用，请稍后重试",
+          retryable: true,
+        },
+        { status: inspection.reason === "unavailable" ? 502 : 422 }
+      );
+    }
     if (!imageResponse.ok) {
       return NextResponse.json({ error: "头像图片下载失败" }, { status: 502 });
     }
@@ -112,6 +156,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": contentType,
         "Cache-Control": "no-store",
         "X-Image-Model": model,
+        "X-Image-Safety": "provider-filtered+vision",
       },
     });
   } catch (error) {
@@ -124,30 +169,6 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-function buildAvatarPrompt(
-  gameType: GameType,
-  characterName: string,
-  description: string,
-  storySetting: string
-): string {
-  const styleByType: Record<GameType, string> = {
-    otome: "精致日系乙女游戏人物立绘头像，柔和电影光影，青春校园氛围，人物情绪细腻",
-    mystery: "电影级悬疑游戏人物档案头像，低饱和色彩，克制的戏剧光影，神秘但不血腥",
-    other: "高品质互动小说人物概念头像，电影感光影，角色特征鲜明，画面精致",
-  };
-
-  return [
-    styleByType[gameType],
-    "1:1 正方形单人头像，头肩构图，正面或轻微侧脸，面部完整清晰，背景简洁，与故事时代和服饰一致",
-    "画面中只能出现一个人物，不要边框，不要 UI，不要字幕、姓名、水印或任何文字",
-    `人物姓名：${characterName}`,
-    description ? `人物设定：${description}` : "",
-    storySetting ? `世界观约束：${storySetting}` : "",
-  ]
-    .filter(Boolean)
-    .join("。\n");
 }
 
 function cleanEnv(value: string | undefined): string {

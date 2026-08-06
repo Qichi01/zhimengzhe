@@ -22,7 +22,7 @@ const GENRE_OPTIONS = [
   {
     id: "infinite_flow" as const,
     label: "无限流",
-    description: "系统任务、队伍频道、背包与商店",
+    description: "多世界冒险、成长升级、系统任务、背包与商店",
     accent: "#71f5c2",
   },
 ];
@@ -64,7 +64,7 @@ export default function V3WorldConfirmPage({ params }: { params: Promise<{ draft
       artStyle:
         genre === "campus_otome"
           ? "清透细腻的校园乙女游戏插画"
-          : "低饱和、强氛围的无限流系统美术",
+          : "明快舒适、有冲击力的多世界冒险插画，突出成长、任务推进与爽感，适合全年龄用户",
     });
   };
 

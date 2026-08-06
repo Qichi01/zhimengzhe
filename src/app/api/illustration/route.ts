@@ -1,4 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  buildSceneImagePrompt,
+  sanitizeVisualReference,
+} from "@/lib/imagePrompts";
+import {
+  fetchGeneratedImage,
+  hasUnsafeGenerationFilter,
+  inspectGeneratedImage,
+} from "@/lib/imageModeration";
 import type { GameType } from "@/types";
 import type { IllustrationReason } from "@/lib/illustrations";
 
@@ -38,7 +47,8 @@ interface IllustrationRequest {
 
 interface ImageApiResponse {
   data?: Array<{ url?: string }>;
-  error?: { message?: string };
+  content_filter?: Array<{ role?: string; level?: number }>;
+  error?: { code?: string | number; message?: string };
 }
 
 export async function POST(req: NextRequest) {
@@ -71,7 +81,7 @@ export async function POST(req: NextRequest) {
     }
 
     const model = cleanEnv(process.env.IMAGE_MODEL) || DEFAULT_IMAGE_MODEL;
-    const prompt = buildImagePrompt(
+    const prompt = buildSceneImagePrompt(
       body.gameType === "otome" || body.gameType === "mystery" ? body.gameType : "other",
       storySetting,
       sceneContent
@@ -101,9 +111,20 @@ export async function POST(req: NextRequest) {
         generationResponse.status,
         generationData.error?.message ?? "unknown error"
       );
+      const safetyRejected = String(generationData.error?.code ?? "") === "1301";
       return NextResponse.json(
-        { error: "配图服务暂时不可用" },
-        { status: 502 }
+        {
+          error: safetyRejected
+            ? "场景内容超出当前图片规范，已跳过配图"
+            : "配图服务暂时不可用",
+        },
+        { status: safetyRejected ? 422 : 502 }
+      );
+    }
+    if (hasUnsafeGenerationFilter(generationData.content_filter)) {
+      return NextResponse.json(
+        { error: "生成结果未通过图片安全检查，已停止展示" },
+        { status: 422 }
       );
     }
 
@@ -116,10 +137,26 @@ export async function POST(req: NextRequest) {
     }
 
     // 智谱返回的是临时 URL；服务端立即下载并交给客户端存入 IndexedDB。
-    const imageResponse = await fetch(imageUrl, {
-      signal: AbortSignal.timeout(12_000),
-      cache: "no-store",
-    });
+    const [imageResponse, inspection] = await Promise.all([
+      fetchGeneratedImage(imageUrl),
+      inspectGeneratedImage(apiKey, imageUrl, {
+        kind: "scene",
+        sceneReference: sanitizeVisualReference(sceneContent, 600),
+      }),
+    ]);
+    if (!inspection.valid) {
+      return NextResponse.json(
+        {
+          error:
+            inspection.reason === "unsafe"
+              ? "生成结果未通过图片安全检查，已停止展示"
+              : inspection.reason === "off_spec"
+                ? "生成图片与当前场景不符，已停止展示"
+                : "图片质量检查暂时不可用，正文不受影响",
+        },
+        { status: inspection.reason === "unavailable" ? 502 : 422 }
+      );
+    }
     if (!imageResponse.ok) {
       return NextResponse.json({ error: "配图下载失败" }, { status: 502 });
     }
@@ -144,6 +181,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": contentType,
         "Cache-Control": "no-store",
         "X-Image-Model": model,
+        "X-Image-Safety": "provider-filtered+vision",
       },
     });
   } catch (error) {
@@ -216,28 +254,4 @@ function isRateLimited(deviceId: string): boolean {
   recent.push(now);
   requestLog.set(deviceId, recent);
   return false;
-}
-
-function buildImagePrompt(
-  gameType: GameType,
-  storySetting: string,
-  sceneContent: string
-): string {
-  const styleByType: Record<GameType, string> = {
-    otome:
-      "精致日系乙女游戏场景原画，人物情绪细腻，柔和电影光影，浪漫但克制，角色服饰与环境细节完整",
-    mystery:
-      "电影级悬疑游戏概念艺术，低饱和色彩，强烈明暗层次，空间细节清晰，紧张神秘但不血腥",
-    other:
-      "高品质互动小说场景概念艺术，电影感光影，叙事性构图，丰富环境细节，氛围沉浸",
-  };
-
-  return [
-    styleByType[gameType],
-    "16:9 横向构图，单一连续场景，突出此刻最重要的人物动作、环境和情绪，不要分镜，不要边框，不要 UI，不要字幕或文字",
-    storySetting ? `世界观与角色约束：${storySetting}` : "",
-    `当前关键场景：${sceneContent}`,
-  ]
-    .filter(Boolean)
-    .join("。\n");
 }

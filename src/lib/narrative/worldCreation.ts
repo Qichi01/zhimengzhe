@@ -61,7 +61,7 @@ export async function createWorldCreationDraft({
     artStyle:
       primaryGenre === "campus_otome"
         ? "清透细腻的校园乙女游戏插画"
-        : "低饱和、强氛围的无限流系统美术",
+        : "明快舒适、有冲击力的多世界冒险插画，突出成长、任务推进与爽感，适合全年龄用户",
     createdAt: now,
     updatedAt: now,
   };
@@ -175,8 +175,16 @@ export async function confirmWorldCreationDraft(
       palette:
         draft.primaryGenre === "campus_otome"
           ? ["#ffb3d9", "#f8e8f1", "#8d6f9f"]
-          : ["#71f5c2", "#101714", "#80958c"],
-      forbiddenElements: ["文字水印", "界面截图", "角色外观突变"],
+          : ["#71f5c2", "#183c32", "#d9fff1"],
+      forbiddenElements: [
+        "文字水印",
+        "界面截图",
+        "角色外观突变",
+        "恐怖血腥画面",
+        "色情裸露内容",
+        "多角色头像",
+        "全身头像",
+      ],
     },
     sourceHash,
     createdAt: now,

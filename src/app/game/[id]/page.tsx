@@ -18,10 +18,14 @@ import {
   clearGameData,
   upsertCharacter,
   claimCharacterAvatarAutoGeneration,
+  releaseCharacterAvatarAutoGeneration,
   getDeviceId,
   setGeneratedCharacterAvatarIfEmpty,
 } from "@/lib/localDb";
-import { generateCharacterAvatar } from "@/lib/avatarAssets";
+import {
+  AvatarGenerationError,
+  generateCharacterAvatar,
+} from "@/lib/avatarAssets";
 import { track } from "@/lib/analytics";
 import type { Game, Save, Chapter, SceneRecord, Character, Relationship } from "@/types";
 
@@ -30,7 +34,8 @@ const MAX_AUTOMATIC_AVATARS_PER_VISIT = 6;
 async function generateMissingDefaultAvatars(
   game: Game,
   characters: Character[],
-  onUpdated: (character: Character) => void
+  onUpdated: (character: Character) => void,
+  onGenerationChange: (characterId: string, generating: boolean) => void
 ) {
   const candidates = characters
     .filter(
@@ -45,6 +50,7 @@ async function generateMissingDefaultAvatars(
     const claim = await claimCharacterAvatarAutoGeneration(character.id);
     if (!claim.claimed || !claim.data) continue;
 
+    onGenerationChange(claim.data.id, true);
     try {
       const avatar = await generateCharacterAvatar({
         characterName: claim.data.name,
@@ -58,8 +64,16 @@ async function generateMissingDefaultAvatars(
         avatar
       );
       if (saved.data) onUpdated(saved.data);
-    } catch {
-      // 自动生成只尝试一次；失败保留首字头像，用户仍可手动重试或上传。
+    } catch (cause) {
+      // 只有临时服务错误才释放任务；安全审核拒绝的结果不应自动重复生成。
+      if (!(cause instanceof AvatarGenerationError) || cause.retryable) {
+        await releaseCharacterAvatarAutoGeneration(
+          claim.data.id,
+          claim.data.avatar_auto_attempted_at
+        );
+      }
+    } finally {
+      onGenerationChange(claim.data.id, false);
     }
   }
 }
@@ -73,6 +87,9 @@ export default function GameMenuPage({ params }: { params: Promise<{ id: string 
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [scenes, setScenes] = useState<SceneRecord[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [generatingAvatarIds, setGeneratingAvatarIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSaveList, setShowSaveList] = useState(false);
@@ -127,6 +144,14 @@ export default function GameMenuPage({ params }: { params: Promise<{ id: string 
               character.id === updatedCharacter.id ? updatedCharacter : character
             )
           );
+        },
+        (characterId, generating) => {
+          setGeneratingAvatarIds((current) => {
+            const next = new Set(current);
+            if (generating) next.add(characterId);
+            else next.delete(characterId);
+            return next;
+          });
         }
       );
 
@@ -359,6 +384,7 @@ export default function GameMenuPage({ params }: { params: Promise<{ id: string 
           protagonistName="主角"
           gameType={game.type}
           storySetting={game.setting}
+          generatingAvatarIds={generatingAvatarIds}
           title={game.experience_version === "v3" ? "人物档案" : "人物关系图"}
           onCharacterUpdated={(updatedCharacter) => {
             setCharacters((current) =>

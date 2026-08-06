@@ -12,6 +12,7 @@ interface RelationshipGraphProps {
   protagonistName?: string;
   gameType: GameType;
   storySetting: string;
+  generatingAvatarIds?: ReadonlySet<string>;
   onCharacterUpdated: (character: Character) => void;
   title?: string;
   onClose: () => void;
@@ -57,6 +58,7 @@ export default function RelationshipGraph({
   protagonistName = "主角",
   gameType,
   storySetting,
+  generatingAvatarIds,
   onCharacterUpdated,
   title = "人物关系图",
   onClose,
@@ -502,6 +504,7 @@ export default function RelationshipGraph({
                 character={selectedNodeInfo.character}
                 gameType={gameType}
                 storySetting={storySetting}
+                isAutoGenerating={generatingAvatarIds?.has(selectedNodeInfo.character.id)}
                 onUpdated={onCharacterUpdated}
                 showPreview={false}
               />

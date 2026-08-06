@@ -44,7 +44,7 @@ const V3_GENRES = [
   {
     value: "infinite_flow" as const,
     label: "无限流",
-    desc: "系统、任务、背包与商店",
+    desc: "多世界冒险、成长与任务",
     color: "#71f5c2",
   },
 ];

@@ -12,6 +12,7 @@ interface CharacterAvatarEditorProps {
   storySetting: string;
   onUpdated: (character: Character) => void;
   showPreview?: boolean;
+  isAutoGenerating?: boolean;
 }
 
 export default function CharacterAvatarEditor({
@@ -20,6 +21,7 @@ export default function CharacterAvatarEditor({
   storySetting,
   onUpdated,
   showPreview = true,
+  isAutoGenerating = false,
 }: CharacterAvatarEditorProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isWorking, setIsWorking] = useState(false);
@@ -108,12 +110,16 @@ export default function CharacterAvatarEditor({
           </button>
           <button
             type="button"
-            disabled={isWorking}
+            disabled={isWorking || isAutoGenerating}
             onClick={handleGenerate}
             className="rounded-full border px-3 py-1.5 text-xs transition-colors hover:bg-white/10 disabled:cursor-wait disabled:opacity-50"
             style={{ borderColor: "rgba(200,170,255,0.28)", color: "#c8aaff" }}
           >
-            {isWorking ? "处理中…" : character.avatar ? "重新生成" : "生成默认头像"}
+            {isWorking || isAutoGenerating
+              ? "正在生成…"
+              : character.avatar
+                ? "重新生成"
+                : "生成默认头像"}
           </button>
           {character.avatar && (
             <button
@@ -128,7 +134,14 @@ export default function CharacterAvatarEditor({
           )}
         </div>
         <p className="mt-1.5 text-[11px]" style={{ color: error ? "#ff9ca8" : "rgba(213,184,245,0.4)" }}>
-          {error ?? (character.avatar?.source === "uploaded" ? "当前使用你上传的图片，仅保存在本机" : character.avatar ? "当前使用 AI 默认头像，可随时上传替换" : "支持 JPG、PNG、WebP，最大 5 MB")}
+          {error ??
+            (isAutoGenerating
+              ? "正在根据人物介绍生成安全的单角色头像，请稍候…"
+              : character.avatar?.source === "uploaded"
+                ? "当前使用你上传的图片，仅保存在本机"
+                : character.avatar
+                  ? "当前使用 AI 默认头像，可随时上传替换"
+                  : "支持 JPG、PNG、WebP，最大 5 MB")}
         </p>
       </div>
     </div>

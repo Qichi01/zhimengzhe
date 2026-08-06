@@ -3,6 +3,7 @@ import type { CharacterAvatar, GameType } from "@/types";
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const AVATAR_SIZE = 512;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const inFlightAvatarRequests = new Map<string, Promise<CharacterAvatar>>();
 
 interface GenerateCharacterAvatarInput {
   characterName: string;
@@ -10,6 +11,16 @@ interface GenerateCharacterAvatarInput {
   gameType: GameType;
   storySetting: string;
   deviceId: string;
+}
+
+export class AvatarGenerationError extends Error {
+  readonly retryable: boolean;
+
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.name = "AvatarGenerationError";
+    this.retryable = retryable;
+  }
 }
 
 export async function createUploadedAvatar(file: File): Promise<CharacterAvatar> {
@@ -31,9 +42,35 @@ export async function generateCharacterAvatar({
   characterName,
   description,
   gameType,
-  storySetting,
   deviceId,
 }: GenerateCharacterAvatarInput): Promise<CharacterAvatar> {
+  const requestKey = [
+    deviceId,
+    gameType,
+    characterName.trim(),
+    description?.trim() ?? "",
+  ].join("::");
+  const existingRequest = inFlightAvatarRequests.get(requestKey);
+  if (existingRequest) return existingRequest;
+
+  const request = requestCharacterAvatar({
+    characterName,
+    description,
+    gameType,
+    deviceId,
+  }).finally(() => {
+    inFlightAvatarRequests.delete(requestKey);
+  });
+  inFlightAvatarRequests.set(requestKey, request);
+  return request;
+}
+
+async function requestCharacterAvatar({
+  characterName,
+  description,
+  gameType,
+  deviceId,
+}: Omit<GenerateCharacterAvatarInput, "storySetting">): Promise<CharacterAvatar> {
   const response = await fetch("/api/avatar", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -41,20 +78,24 @@ export async function generateCharacterAvatar({
       characterName,
       description,
       gameType,
-      storySetting,
       deviceId,
     }),
   });
 
   if (!response.ok) {
     let message = "默认头像生成失败，请稍后重试";
+    let retryable: boolean | undefined;
     try {
       const data = await response.json();
       if (typeof data?.error === "string") message = data.error;
+      if (typeof data?.retryable === "boolean") retryable = data.retryable;
     } catch {
       // 图片接口失败时保留首字兜底头像。
     }
-    throw new Error(message);
+    throw new AvatarGenerationError(
+      message,
+      retryable ?? (response.status === 429 || response.status >= 500)
+    );
   }
 
   const imageBlob = await response.blob();
