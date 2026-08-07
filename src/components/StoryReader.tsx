@@ -463,7 +463,11 @@ export default function StoryReader({
         if (illustrationPromise) {
           void illustrationPromise
             .then(async (illustration) => {
-              await updateSceneIllustration(newRawScene.id, illustration);
+              const { error: illustrationSaveError } =
+                await updateSceneIllustration(newRawScene.id, illustration);
+              if (illustrationSaveError) {
+                throw new Error(illustrationSaveError);
+              }
               setRawScenes((prev) =>
                 prev.map((scene) =>
                   scene.id === newRawScene.id

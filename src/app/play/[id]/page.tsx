@@ -72,8 +72,11 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
         const { data: sceneData } = await getScenes(id);
         setScenes(sceneData ?? []);
       } else {
-        // 新的开始：不加载历史场景，从空开始
-        setScenes([]);
+        // “新的开始”会在游戏菜单跳转前清空旧进度。
+        // 直接访问或刷新阅读页时必须恢复当前场景，否则会把已有游戏误判为
+        // 新游戏，并重复调用正文与配图接口。
+        const { data: sceneData } = await getScenes(id);
+        setScenes(sceneData ?? []);
       }
 
       setLoading(false);
